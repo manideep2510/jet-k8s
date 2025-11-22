@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Others
+junk.py
+notes.py
+.DS_Store
+thumbs.db
+pod_watcher.py
+get_status.py
+logs/
+pyproject.toml
