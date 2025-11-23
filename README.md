@@ -1,8 +1,8 @@
-# JET K8s: Job Execution Toolkit (JET) for Kubernetes
+# Jet K8s: Job Execution Toolkit (Jet) for Kubernetes
 
-Skip the YAML. A lightweight command-line Job Execution Toolkit (JET) for Kubernetes that simplifies batch job management with a focus on ML workloads.
+Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubernetes that simplifies batch job management with a focus on ML workloads.
 
-[![PyPI version](https://badge.fury.io/py/jet-k8s.svg)](https://badge.fury.io/py/jet-k8s) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![PyPI version](https://badge.fury.io/py/Jet-k8s.svg)](https://badge.fury.io/py/Jet-k8s) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ## Features
 
@@ -14,7 +14,7 @@ Skip the YAML. A lightweight command-line Job Execution Toolkit (JET) for Kubern
 
 ## Overview
 
-JET K8s eliminates the complexity of Kubernetes YAML configuration files, providing a streamlined CLI experience for:
+Jet K8s eliminates the complexity of Kubernetes YAML configuration files, providing a streamlined CLI experience for:
 - Defining and submitting batch jobs
 - Running interactive Jupyter notebook sessions on Kubernetes with automatic port forwarding.
 - Creating interactive shell debug environments for troubleshooting and debugging.
@@ -25,10 +25,10 @@ Perfect for ML engineers and researchers who want to leverage Kubernetes for ML 
 
 ## Installation
 
-You can install JET K8s using pip:
+You can install Jet K8s using pip:
 
 ```bash
-pip install jet-k8s
+pip install Jet-k8s
 ```
 
 ## Usage
@@ -131,7 +131,12 @@ TODO: Monitor jobs, view logs, connect to running jobs, delete jobs commands
 
 ## Notes
 
-1. JET K8s currenty supports only Kubernetes clusters with NVIDIA GPU nodes.
+1. Jet K8s currenty supports only Kubernetes clusters with NVIDIA GPU nodes.
 
-2. JET K8S currently only supports KAI Scheduler for job scheduling.
+2. Jet K8S currently only supports KAI Scheduler for job scheduling.
 
+3. The argument `--gpu-type` is implemented using node selectors. Ensure that your cluster nodes are labeled appropriately for the GPU types you intend to use.
+For example, to label a node with an A100 GPU, you can use:
+   ```bash
+   kubectl label nodes <node-name> gpu-type=a100
+   ```

@@ -2,9 +2,9 @@
 # and call relevant functions from other modules
 
 import argparse
-from utils import submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod
-from job_builder import ContainerBuilder, PodSpecBuilder, JobSpecBuilder, JobBuilder
-from process_args import ProcessArguments
+from .utils import submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod
+from .job_builder import ContainerBuilder, PodSpecBuilder, JobSpecBuilder, JobBuilder
+from .process_args import ProcessArguments
 import time
 import signal
 
@@ -401,7 +401,7 @@ def run(args, command, launch_type=None):
     elif command == 'delete':
         jet.delete()
 
-if __name__ == "__main__":
+def cli():
     
     # Command line arguments
     args = parse_arguments()
@@ -413,3 +413,6 @@ if __name__ == "__main__":
     # Run Jet commands
     run(processed_args, args.jet_command,
         args.launch_type if hasattr(args, 'launch_type') else None)
+
+if __name__ == "__main__":
+    cli()
