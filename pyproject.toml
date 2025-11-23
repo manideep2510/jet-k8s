@@ -13,14 +13,14 @@ readme = "README.md"
 requires-python = ">=3.8"
 keywords = ["kubernetes", "k8s", "cli"]
 classifiers = [
-    "Operating System :: OS Independent",
+    "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License"
 ]
 license = {text = "Apache-2.0"}
 dependencies = [
     "PyYAML>=6.0",
-    "kr8s>=0.8.0",
+    "kr8s>=0.19.0",
     "httpx>=0.23.0",
 ]
 
