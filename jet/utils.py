@@ -1,7 +1,6 @@
 import logging
 import subprocess
 import yaml
-# from kubernetes import client, config
 import time
 import kr8s
 from kr8s.objects import Job, Pod

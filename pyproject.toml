@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jet-k8s"
+version = "0.0.1"
+authors = [
+    { name = "Manideep Kolla", email = "manideep2510@gmail.com" }
+]
+description = "A CLI Job Execution Toolkit (JET) for Kubernetes"
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["kubernetes", "k8s", "cli"]
+classifiers = [
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License"
+]
+license = {text = "Apache-2.0"}
+dependencies = [
+    "PyYAML>=6.0",
+    "kr8s>=0.8.0",
+    "httpx>=0.23.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/manideep2510/jet-k8s"
+Issues = "https://github.com/manideep2510/jet-k8s/issues"
+
+[project.scripts]
+jet = "jet.jet:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jet*"]
+exclude = ["tests*"]
