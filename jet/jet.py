@@ -102,7 +102,7 @@ def parse_arguments():
     list_templates_parser.add_argument('--type', choices=['job', 'jupyter', 'debug'], help='Type of templates to list')
     list_templates_parser.add_argument('--name', help='Filter templates by name (substring match)')
     list_templates_parser.add_argument('--regex', help='Filter templates by regex pattern')
-    list_templates_parser.add_argument('--sort-by', choices=['time', 'name'], default='time', help='Sort templates by time or name')
+    list_templates_parser.add_argument('--sort-by', choices=['time', 'name'], default='name', help='Sort templates by time or name')
     list_templates_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed template information')
 
     # Get command
@@ -250,8 +250,11 @@ class Jet():
 
         # TODO: Watch for job and pod status. If any of them fail or deleted EXTERNALLY, stop port forwarding and exit gracefully.
         # TODO: If follow is True, implement logic to follow job logs, status and events in addition to below pod log streaming.
+        # BUG: If a job is already finished, but resubmitted with the same name, kubectl will say "configured", which is not an error. So this impl goes on to wait for pod readiness, which will timeout and delete the job. Need to handle that better.
 
         try:
+            port_forwarder = None
+            
             # Wait for Jupyter pod to be running
             print("Waiting for Jupyter pod to be ready...")
             jupyter_pod_name = wait_for_job_pods_ready(
@@ -292,8 +295,8 @@ class Jet():
             # Block further interrupts while cleaning up
             # NOTE: For robustness, reset signal handler after cleanup.
             signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-            port_forwarder.stop()
+            if port_forwarder is not None:
+                port_forwarder.stop()
             try:
                 delete_resource(
                     name=job_details_args['job_name'],
@@ -307,7 +310,9 @@ class Jet():
         except Exception as e:
             # Delete jupyter job/pod if created
             print(f"Error occurred during jupyter server creation or running it: {e}. \n\nDeleting Jupyter job/pod if created")
-            port_forwarder.stop()
+            
+            if port_forwarder is not None:
+                port_forwarder.stop()
 
             # Block interrupts while cleaning up.
             # NOTE: For robustness, reset signal handler after cleanup.
@@ -418,6 +423,15 @@ class Jet():
                 namespace=job_details_args['namespace']
             )
 
+    def list_templates(self):
+        self.template_manager.print_templates(
+            job_type=self.processed_args['job_type'],
+            verbose=self.processed_args['verbose'],
+            filter_by=self.processed_args['name_match_substr'],
+            filter_regex=self.processed_args['regex'],
+            sort_by=self.processed_args['sort_by']
+        )
+
     # TODO: Yet to implement
     def get_status(self):
         pass
@@ -450,6 +464,8 @@ def run(args, command, launch_type=None):
             jet.launch_jupyter()
         elif launch_type == 'debug':
             jet.launch_debug()
+    elif command == 'list-templates':
+        jet.list_templates()
     elif command == 'get':
         jet.get_status()
     elif command == 'logs':
