@@ -2,11 +2,13 @@ import os
 import logging
 import configparser
 from pathlib import Path
+from .utils import TemplateManager
 
 class ProcessArguments:
     def __init__(self, args):
         self.args = args
-
+        self.template_manager = TemplateManager()
+        
     def process(self):
         if self.args.jet_command == 'launch':
             if self.args.launch_type == 'job':
@@ -67,6 +69,9 @@ class ProcessArguments:
                                                       [os.path.join(os.path.expanduser("~"), '.jupyter')], 
                                                       [os.path.join(os.path.expanduser("~"), '.ipython')]], 
                                                       identifier="jupyter-config"))
+        
+        if self.args.notebooks_dir is None:
+            logging.warning("Notebooks directory not provided. It's recommended to provide a notebooks directory using --notebooks-dir/-np flag to persist your notebooks.")
 
         return self._generate_specs(
             job_type='jupyter',
@@ -114,13 +119,19 @@ class ProcessArguments:
         pass
 
     def _generate_specs(self, job_type, backoff_limit, ttl_seconds_after_finished, additional_volumes=[], additional_envs={}, additional_ports=[], command_override=None, working_dir_override=None, active_deadline_seconds=None):
-        if len(self.args.name) == 0:
-            raise ValueError("Job name cannot be empty")
+        
+        if self.args.template:
+            template_path = self.template_manager.resolve_template_path(self.args.template, job_type)
+            if template_path:
+                print(f"Using template file: {template_path} for launching the job.")
+            # return str(template_path)
+            # TODO: Merging template specs with CLI args instead of returning template path directly, i.e, override template specs with CLI args.
+            return str(template_path)
         
         # If args.name is a file path, return it as is.
-        if os.path.isfile(self.args.name):
+        if os.path.isfile(os.path.abspath(self.args.name)):
             logging.info(f"Job file provided: {self.args.name}. Ignoring other launch job arguments.")
-            return self.args.name
+            return os.path.abspath(self.args.name)
         
         # Process job details arguments
         job_details_args = {
@@ -245,7 +256,8 @@ class ProcessArguments:
             'ports': ports,
             'follow': self.args.follow if hasattr(self.args, 'follow') else False,
             'dry_run': self.args.dry_run if hasattr(self.args, 'dry_run') else False,
-            'verbose': self.args.verbose if hasattr(self.args, 'verbose') else False    
+            'verbose': self.args.verbose if hasattr(self.args, 'verbose') else False,
+            'save_template': self.args.save_template if hasattr(self.args, 'save_template') else False
         }
 
 

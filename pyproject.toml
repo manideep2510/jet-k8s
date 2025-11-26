@@ -15,9 +15,8 @@ keywords = ["kubernetes", "k8s", "cli"]
 classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache Software License"
 ]
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 dependencies = [
     "PyYAML>=6.0",
     "kr8s>=0.19.0",
@@ -34,4 +33,4 @@ jet = "jet.jet:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["jet*"]
-exclude = ["tests*"]
+exclude = ["tests*", "garbage*"]
