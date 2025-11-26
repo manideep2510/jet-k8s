@@ -7,6 +7,7 @@ Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubern
 ## Features
 
 - 🚀 **Simplified Job Submission** - Define and submit Kubernetes jobs directly from the command line without writing YAML files manually.
+- TODO: 📄 **Work with Templates** - Save custom job templates to standardize and simplify job configurations.
 - 📓 **Jupyter Integration** - Launch Jupyter notebooks on Kubernetes with automatic port forwarding.
 - 🐛 **Debug Sessions** - Spin up interactive debug pods for quick troubleshooting.
 - 📊 **Easy Monitoring** - Track and manage batch jobs with an intuitive CLI.
@@ -36,23 +37,22 @@ After installation, you can use the `jet` command in your terminal. Here are som
 
 - Submit a job:
   ```bash
-  jet launch job --image my-ml-image --command "python train.py"
+  jet launch job my-simple-job --image my-ml-image --command "python train.py"
   ```
 
 - Submit a job with resource specifications and volume mounts:
   ```bash
-  jet launch job --image my-ml-image --command "python train.py" --cpu 4 --memory 16Gi --gpu 1 --volume /data:/mnt/data
+  jet launch job my-resource-job --image my-ml-image --command "python train.py" --cpu 4 --memory 16Gi --gpu 1 --volume /data:/mnt/data
   ```
 
 - Submit a job with python virtual environment mounted:
   ```bash
-  jet launch job --image my-ml-image --command "python train.py" --pyenv /path/to/venv
+  jet launch job my-python-job --image my-ml-image --command "python train.py" --pyenv /path/to/venv
   ```
 
 - A minimal job submission example:
   ```bash
-  jet launch job \
-    --name my-simple-job \
+  jet launch job my-simple-job \
     --image my-ml-image \
     --command "python train.py" \
     --pyenv /path/to/venv \
@@ -64,8 +64,7 @@ After installation, you can use the `jet` command in your terminal. Here are som
 
 - A complete job submission example:
   ```bash
-  jet launch job \
-    --name my-ml-job \
+  jet launch job my-ml-job \
     --image my-ml-image \
     --image-pull-policy IfNotPresent \
     --shell /bin/bash \
@@ -87,10 +86,41 @@ After installation, you can use the `jet` command in your terminal. Here are som
     --verbose
   ```
 
+- Define and save a job template:
+  ```bash
+  jet launch job my-ml-job-template \ # It can be jet launch template job/jupyter/debug ...
+    --image my-ml-image \
+    --image-pull-policy IfNotPresent \
+    --shell /bin/bash \
+    --command "python train.py --epochs 10" \
+    --pyenv /path/to/venv \
+    --restart-policy OnFailure \
+    --cpu 4 \
+    --memory 16Gi \
+    --gpu 1 \
+    --gpu-type h100 \
+    --node-selector kubernetes.io/hostname=node1 \
+    --volume /data1:/mnt/data1 /data2:/mnt/data2 \
+    --volume /data3:/mnt/data3 \
+    --shm-size 1Gi \
+    --mount-home \
+    --env ENV1=value1 ENV2=value2 \
+    --env ENV3=value3 \
+    --save-template # Just pass this flag to save the template. Job will not actually be launched if this flag is provided.
+
+  # Saves the template as 'my-ml-job' in the local Jet K8s template store
+  ```
+
+- Launch a job using a saved template:
+  ```bash
+  # Additional arguments like --command can override the configuration defined in the template
+  # Job name provided in the command will override the job name in the template
+  jet launch job my-ml-job --template my-ml-job-template --command "python train.py --epochs 20"
+  ```
+
 - Start a Jupyter notebook session:
   ```bash
-  jet launch jupyter \ 
-    --name my-jupyter-notebook \
+  jet launch jupyter my-jupyter-notebook \
     --image my-ml-image \
     --image-pull-policy IfNotPresent \
     --pyenv /path/to/venv \
@@ -109,8 +139,7 @@ After installation, you can use the `jet` command in your terminal. Here are som
 
 - Start a debug session:
   ```bash
-  jet launch debug \
-    --name my-debug-session \
+  jet launch debug my-debug-session \
     --image my-ml-image \
     --image-pull-policy IfNotPresent \
     --pyenv /path/to/venv \
@@ -128,6 +157,12 @@ After installation, you can use the `jet` command in your terminal. Here are som
   ```
 
 TODO: Monitor jobs, view logs, connect to running jobs, delete jobs commands
+
+## Why Jobs?
+
+I conciously chose to focus on Kubernetes Jobs rather than Pods or Deployments for the following reasons:
+
+#### TODO: Explain why Jobs are chosen over Pods/Deployments
 
 ## Notes
 

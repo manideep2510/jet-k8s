@@ -2,11 +2,12 @@
 # and call relevant functions from other modules
 
 import argparse
-from .utils import submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod
+from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager
 from .job_builder import ContainerBuilder, PodSpecBuilder, JobSpecBuilder, JobBuilder
 from .process_args import ProcessArguments
 import time
 import signal
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Jet CLI Tool")
@@ -19,10 +20,11 @@ def parse_arguments():
     # Launch Job
     job_parser = launch_subparsers.add_parser('job', help='Launch a job')
     job_parser.add_argument('name', help='Name of the job or path to job file')
+    job_parser.add_argument('--template', help='Name of the job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
     job_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
-    job_parser.add_argument('--image', required=True, help='Container image name')
+    job_parser.add_argument('--image', help='Container image name')
     job_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
-    job_parser.add_argument('--command', required=True, help='Command to run in the container')
+    job_parser.add_argument('--command', help='Command to run in the container')
     job_parser.add_argument('--shell', default='/bin/sh', help='Shell to use for the command')
     job_parser.add_argument('--pyenv', help='Path to Python environment. Supported envs: conda, venv, uv.')
     job_parser.add_argument('--scheduler', default='kai-scheduler', help='Scheduler name')
@@ -41,17 +43,19 @@ def parse_arguments():
     job_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     job_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     job_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
+    job_parser.add_argument('--save-template', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
 
     # Launch Jupyter
     jupyter_parser = launch_subparsers.add_parser('jupyter', help='Launch a Jupyter Notebook server')
     jupyter_parser.add_argument('name', help='Name of the Jupyter job')
+    jupyter_parser.add_argument('--template', help='Name of the Jupyter job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
     jupyter_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
-    jupyter_parser.add_argument('--image', required=True, help='Container image name')
+    jupyter_parser.add_argument('--image', help='Container image name')
     jupyter_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
     jupyter_parser.add_argument('--pyenv', help='Path to Python environment. Supported envs: conda, venv, uv.')
     jupyter_parser.add_argument('--scheduler', default='kai-scheduler', help='Scheduler name')
     jupyter_parser.add_argument('--port', default='8888', help='Optional host port number to forward the port 8888 of Jupyter server inside the pod and optional Jupyter port to customize port inside pod. Format: [forward_port]:[jupyter_port]')
-    jupyter_parser.add_argument('--notebooks-dir', '-np', required=True, help='Path to Jupyter notebooks directory on host machine to mount inside the container')
+    jupyter_parser.add_argument('--notebooks-dir', '-nd', help='Path to Jupyter notebooks directory on host machine to mount inside the container')
     jupyter_parser.add_argument('--volume', '-v', action='append', nargs='+', help='Additional volumes to mount. Format: [<volume_name>:]<host_path>[:<mount_path>][:Type]')
     jupyter_parser.add_argument('--shm-size', help='Size of /dev/shm')
     jupyter_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
@@ -65,12 +69,14 @@ def parse_arguments():
     jupyter_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     jupyter_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     jupyter_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
+    jupyter_parser.add_argument('--save-template', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
 
     # Launch Debug session
     debug_parser = launch_subparsers.add_parser('debug', help='Launch a debug session')
     debug_parser.add_argument('name', help='Name of the debug job')
+    debug_parser.add_argument('--template', help='Name of the debug job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
     debug_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
-    debug_parser.add_argument('--image', required=True, help='Container image name')
+    debug_parser.add_argument('--image', help='Container image name')
     debug_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
     debug_parser.add_argument('--duration', type=int, default=21600, help='Duration of the debug session in seconds (default: 21600 seconds = 6 hours)')
     debug_parser.add_argument('--shell', default='/bin/sh', help='Shell to use for the debug session. If zsh is required, user must provide image with zsh installed, set --shell /bin/zsh, and mount user home/zsh files if needed using --volume flag')
@@ -89,6 +95,15 @@ def parse_arguments():
     debug_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     debug_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     debug_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
+    debug_parser.add_argument('--save-template', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
+
+    # List templates command
+    list_templates_parser = subparsers.add_parser('list-templates', help='List available job templates')
+    list_templates_parser.add_argument('--type', choices=['job', 'jupyter', 'debug'], help='Type of templates to list')
+    list_templates_parser.add_argument('--name', help='Filter templates by name (substring match)')
+    list_templates_parser.add_argument('--regex', help='Filter templates by regex pattern')
+    list_templates_parser.add_argument('--sort-by', choices=['time', 'name'], default='time', help='Sort templates by time or name')
+    list_templates_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed template information')
 
     # Get command
     get_parser = subparsers.add_parser('get', help='Get job or pod status')
@@ -133,6 +148,7 @@ def parse_arguments():
 class Jet():
     def __init__(self, processed_args):
         self.processed_args = processed_args
+        self.template_manager = TemplateManager()
 
     def launch_job(self):
 
@@ -141,6 +157,7 @@ class Jet():
         pod_spec_args = self.processed_args['pod_spec_args']
         container_spec_args = self.processed_args['container_spec_args']
         follow = self.processed_args['follow']
+        save_template = self.processed_args['save_template']
 
         container_specs = ContainerBuilder(**container_spec_args).build()
         pod_spec_args['containers'] = [container_specs]
@@ -150,12 +167,25 @@ class Jet():
         job_builder = JobBuilder(**job_details_args, job_spec=job_spec)
         job_config = job_builder.build()
 
+        if save_template:
+            self.template_manager.save_job_template(
+                job_config=job_config,
+                job_name=job_details_args['job_name'],
+                job_type='job',
+                verbose=self.processed_args['verbose']
+            )
+            return
+
         # Submit the job
         submit_job(
             job_config=job_config,
             dry_run=self.processed_args['dry_run'],
             verbose=self.processed_args['verbose']
         )
+
+        # Return if dry run
+        if self.processed_args['dry_run']:
+            return
 
         # TODO: If follow is True, implement logic to follow job logs, status and events in addition to below pod log streaming.
         if follow:
@@ -188,6 +218,7 @@ class Jet():
         pod_port = [item for item in self.processed_args['ports'] if item['name'] == 'jupyter'][0]['container_port']
         host_port = [item for item in self.processed_args['ports'] if item['name'] == 'jupyter'][0]['host_port']
         follow = self.processed_args['follow']
+        save_template = self.processed_args['save_template']
 
         container_specs = ContainerBuilder(**container_spec_args).build()
         pod_spec_args['containers'] = [container_specs]
@@ -197,12 +228,25 @@ class Jet():
         job_builder = JobBuilder(**job_details_args, job_spec=job_spec)
         job_config = job_builder.build()
 
+        if save_template:
+            self.template_manager.save_job_template(
+                job_config=job_config,
+                job_name=job_details_args['job_name'],
+                job_type='jupyter',
+                verbose=self.processed_args['verbose']
+            )
+            return
+
         # Submit the job
         submit_job(
             job_config=job_config,
             dry_run=self.processed_args['dry_run'],
             verbose=self.processed_args['verbose']
         )
+
+        # Return if dry run
+        if self.processed_args['dry_run']:
+            return
 
         # TODO: Watch for job and pod status. If any of them fail or deleted EXTERNALLY, stop port forwarding and exit gracefully.
         # TODO: If follow is True, implement logic to follow job logs, status and events in addition to below pod log streaming.
@@ -241,6 +285,7 @@ class Jet():
         # TODO: These exception handlings would remove a currently running job elsewhere in the namespace with the same name, if the user did not change the job name by mistake. Need to handle this better.
         # TODO: If port forwarding fails, the job/pod is still running. Need to handle that better.
         # TODO: Handle graceful shutdown of jupyter server inside the pod before deleting the job/pod (saving checkpoints, etc.)
+        # BUG: The exception handlings are not obscuring teh case where the job is not even there and prints misleading message. Need to handle that better.
         except KeyboardInterrupt:
             print("Keyboard interrupt received... \n\nDeleting Jupyter job/pod")
 
@@ -285,6 +330,7 @@ class Jet():
         pod_spec_args = self.processed_args['pod_spec_args']
         container_spec_args = self.processed_args['container_spec_args']
         follow = self.processed_args['follow']
+        save_template = self.processed_args['save_template']
 
         container_specs = ContainerBuilder(**container_spec_args).build()
         pod_spec_args['containers'] = [container_specs]
@@ -294,12 +340,25 @@ class Jet():
         job_builder = JobBuilder(**job_details_args, job_spec=job_spec)
         job_config = job_builder.build()
 
+        if save_template:
+            self.template_manager.save_job_template(
+                job_config=job_config,
+                job_name=job_details_args['job_name'],
+                job_type='debug',
+                verbose=self.processed_args['verbose']
+            )
+            return
+
         # Submit the job
         submit_job(
             job_config=job_config,
             dry_run=self.processed_args['dry_run'],
             verbose=self.processed_args['verbose']
         )
+
+        # Return if dry run
+        if self.processed_args['dry_run']:
+            return
 
         # TODO: If follow is True, implement logic to follow job logs, status and events.
         # TODO: Exec only if a connect argument is passed. Yet to implement.
@@ -332,6 +391,7 @@ class Jet():
 
         # Catch any exception during debug session creation or keyboard interrupt
         # TODO: These exception handlings would remove a currently running job elsewhere in the namespace with the same name, if the user did not change the job name by mistake. Need to handle this better.
+        # BUG: The exception handlings are not obscuring teh case where the job is not even there and prints misleading message. Need to handle that better.
         except KeyboardInterrupt:
             print("Keyboard interrupt received... \n\nDeleting debug job/pod")
 
