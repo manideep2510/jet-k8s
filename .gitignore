@@ -211,3 +211,4 @@ __marimo__/
 thumbs.db
 logs/
 garbage/
+tests/

@@ -17,6 +17,8 @@ class ProcessArguments:
                 return self._process_launch_jupyter()
             elif self.args.launch_type == 'debug':
                 return self._process_launch_debug()
+        elif self.args.jet_command == 'list-templates':
+            return self._process_list_templates()
         elif self.args.jet_command == 'get':
             return self._process_get()
         elif self.args.jet_command == 'logs':
@@ -97,6 +99,20 @@ class ProcessArguments:
             command_override=debug_command,
             active_deadline_seconds=active_deadline_seconds
         )
+    
+    def _process_list_templates(self):
+        job_type = self.args.type if self.args.type else None
+        name_match_substr = self.args.name if self.args.name else None
+        regex = self.args.regex if self.args.regex else None
+        sort_by = self.args.sort_by
+        verbose = self.args.verbose if self.args.verbose else False
+        return {
+            'job_type': job_type,
+            'verbose': verbose,
+            'name_match_substr': name_match_substr,
+            'regex': regex,
+            'sort_by': sort_by
+        }
 
     # TODO: Yet to implement
     def _process_get(self):
