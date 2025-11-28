@@ -2,7 +2,23 @@ import os
 import logging
 import configparser
 from pathlib import Path
+import yaml
 from .utils import TemplateManager
+from .job_config import JobConfig, JobMetadata, JobSpec, PodSpec, ContainerSpec, VolumeSpec, ResourceSpec
+
+DEFAULT_CPU = '1:1'
+DEFAULT_MEMORY = '4Gi:4Gi'
+DEFAULT_SCHEDULER = 'kai-scheduler'
+DEFAULT_PRIORITY = 'train'
+DEFAULT_RESTART_POLICY = 'Never'
+DEFAULT_JUPYTER_PORT = '8888'
+DEFAULT_BACKOFF_LIMIT = None  # 6 retries by default
+DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED = 1296000  # 15 days
+DEFAULT_JUPYTER_TTL_SECONDS_AFTER_FINISHED = 1296000  # 15 days
+DEFAULT_DEBUG_TTL_SECONDS_AFTER_FINISHED = 21600  # 6 hours
+DEFAULT_DEBUG_JOB_DURATION_SECONDS = 21600  # 6 hours
+JET_HOME = os.path.join(os.path.expanduser("~"), ".jet")
+
 
 class ProcessArguments:
     def __init__(self, args):
@@ -35,7 +51,7 @@ class ProcessArguments:
         return self._generate_specs(
             job_type='job',
             backoff_limit=None, # Argument currently not implemented, 6 retries by default
-            ttl_seconds_after_finished=1296000 # Argument currently not implemented, defaulted to 15 days   
+            ttl_seconds_after_finished=DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED # Argument currently not implemented, defaulted to 15 days   
         )
     
     def _process_launch_jupyter(self):
@@ -78,7 +94,7 @@ class ProcessArguments:
         return self._generate_specs(
             job_type='jupyter',
             backoff_limit=0, # No retries for jupyter jobs
-            ttl_seconds_after_finished=1296000, # Argument currently not implemented, defaulted to 15 days  
+            ttl_seconds_after_finished=DEFAULT_JUPYTER_TTL_SECONDS_AFTER_FINISHED, # Argument currently not implemented, defaulted to 15 days  
             additional_volumes=jupyter_volumes, 
             additional_envs=jupyter_env_vars, 
             additional_ports=jupyter_ports, # Jupyter port inside pod
@@ -90,12 +106,12 @@ class ProcessArguments:
         
         debug_command = "sleep infinity"
         # Set active deadline seconds to limit the duration of the debug session to the provided duration.
-        active_deadline_seconds = self.args.duration
+        active_deadline_seconds = self.args.duration if self.args.duration else DEFAULT_DEBUG_JOB_DURATION_SECONDS
 
         return self._generate_specs(
             job_type='debug',
             backoff_limit=0, # No retries for debug jobs
-            ttl_seconds_after_finished=21600, # 6 hours for debug jobs
+            ttl_seconds_after_finished=DEFAULT_DEBUG_TTL_SECONDS_AFTER_FINISHED, # 6 hours for debug jobs
             command_override=debug_command,
             active_deadline_seconds=active_deadline_seconds
         )
@@ -134,147 +150,258 @@ class ProcessArguments:
     def _process_delete(self):
         pass
 
+    def _add_volume_with_dedup(self, pod_spec, volume_dict, existing_by_name, existing_by_mount, dedupe_by_name=False):
+        """
+        Add a volume to pod_spec while deduplicating by mount_path and optionally by name.
+        
+        Args:
+            pod_spec: PodSpec object to add volume to
+            volume_dict: Dictionary with volume details (name, volume_type, details, mount_path)
+            existing_by_name: Dictionary tracking volumes by name
+            existing_by_mount: Dictionary tracking volumes by mount_path
+            dedupe_by_name: If True, also deduplicate by volume name (for auto-generated names).
+                           If False, only deduplicate by mount_path (default behavior for CLI volumes).
+        """
+        new_vol = VolumeSpec(
+            name=volume_dict['name'],
+            volume_type=volume_dict['volume_type'],
+            details=volume_dict['details'],
+            mount_path=volume_dict['mount_path']
+        )
+        
+        # Remove conflicting volumes from template
+        # Always deduplicate by mount path (can't have two volumes at same mount point)
+        if new_vol.mount_path and new_vol.mount_path in existing_by_mount:
+            conflicting_vol = existing_by_mount[new_vol.mount_path]
+            if conflicting_vol in pod_spec.volumes:
+                pod_spec.volumes.remove(conflicting_vol)
+                # Also remove from name tracking if it was there
+                if conflicting_vol.name in existing_by_name:
+                    existing_by_name.pop(conflicting_vol.name)
+            existing_by_mount.pop(new_vol.mount_path)
+        
+        # Optionally deduplicate by name (for auto-generated volume names like pyenv-volume, jupyter-notebooks-0)
+        if dedupe_by_name and new_vol.name in existing_by_name:
+            conflicting_vol = existing_by_name[new_vol.name]
+            if conflicting_vol in pod_spec.volumes:
+                pod_spec.volumes.remove(conflicting_vol)
+                # Also remove from mount tracking if it was there
+                if conflicting_vol.mount_path and conflicting_vol.mount_path in existing_by_mount:
+                    existing_by_mount.pop(conflicting_vol.mount_path)
+            existing_by_name.pop(new_vol.name)
+        
+        # Add new volume and update tracking
+        pod_spec.volumes.append(new_vol)
+        existing_by_name[new_vol.name] = new_vol
+        if new_vol.mount_path:
+            existing_by_mount[new_vol.mount_path] = new_vol
+        
+        return new_vol
+
     def _generate_specs(self, job_type, backoff_limit, ttl_seconds_after_finished, additional_volumes=[], additional_envs={}, additional_ports=[], command_override=None, working_dir_override=None, active_deadline_seconds=None):
         
+        # 1. Load Base Config
         if self.args.template:
             template_path = self.template_manager.resolve_template_path(self.args.template, job_type)
             if template_path:
-                print(f"Using template file: {template_path} for launching the job.")
-            # return str(template_path)
-            # TODO: Merging template specs with CLI args instead of returning template path directly, i.e, override template specs with CLI args.
-            return str(template_path)
+                print(f"Using template file: {template_path} for launching the job")
+                job_config = self._load_job_config(template_path)
+        elif os.path.isfile(os.path.abspath(self.args.name)):
+             logging.info(f"Job file provided: {self.args.name}. Loading job configuration from the file.")
+             job_config = self._load_job_config(os.path.abspath(self.args.name))
+        else:
+            # Create default config
+            job_config = JobConfig(
+                metadata=JobMetadata(name=self.args.name, labels={'job-type': job_type}),
+                spec=JobSpec(
+                    template_spec=PodSpec(
+                        containers=[ContainerSpec(name='main')]
+                    )
+                )
+            )
+
+        # 2. Apply Overrides (CLI > Base)
         
-        # If args.name is a file path, return it as is.
-        if os.path.isfile(os.path.abspath(self.args.name)):
-            logging.info(f"Job file provided: {self.args.name}. Ignoring other launch job arguments.")
-            return os.path.abspath(self.args.name)
+        # Metadata
+        if not os.path.isfile(os.path.abspath(self.args.name)):
+             job_config.metadata.name = self.args.name
         
-        # Process job details arguments
-        job_details_args = {
-            'job_name': self.args.name,
-            'namespace': self.args.namespace,
-            # TODO: Create a separate priority class for jupyter and debug jobs. For now, using 'train' priority class.
-            'labels': {'priorityClassName': self.args.priority if hasattr(self.args, 'priority') else 'train',
-                       'job-type': job_type
-                       },
-            'annotations': None,
-        }
+        if self.args.namespace:
+            job_config.metadata.namespace = self.args.namespace
+        
+        # Priority
+        # TODO: Create a separate priority class for jupyter and debug jobs. For now, using 'train' priority class.
+        priority = self.args.priority if hasattr(self.args, 'priority') and self.args.priority else job_config.metadata.labels.get('priorityClassName', DEFAULT_PRIORITY)
+        job_config.metadata.labels['priorityClassName'] = priority
+        job_config.metadata.labels['job-type'] = job_type
 
-        # Process job spec arguments
-        job_spec_args = {
-            'backoff_limit': backoff_limit,
-            'ttl_seconds_after_finished': ttl_seconds_after_finished
-        }
+        # Job Spec
+        if backoff_limit is not None:
+             job_config.spec.backoff_limit = backoff_limit
+        elif job_config.spec.backoff_limit is None:
+             # Default if not in template and not passed
+             pass 
+        
+        if ttl_seconds_after_finished is not None:
+            job_config.spec.ttl_seconds_after_finished = ttl_seconds_after_finished
 
-        # Process pod spec arguments
-        pod_spec_args = {
-            'scheduler': self.args.scheduler,
-            'restart_policy': self.args.restart_policy if hasattr(self.args, 'restart_policy') else 'Never',
-            'num_restarts': None, # A custom pod level number of restarts. Argument currently not implemented, unlimited pod restarts
-            'node_selectors': {i.split('=')[0]:i.split('=')[1] for sublist in self.args.node_selector for i in sublist} if self.args.node_selector else {},
-            'activeDeadlineSeconds': active_deadline_seconds,
-            'volumes': []
-        }
+        # Pod Spec
+        pod_spec = job_config.spec.template_spec
+        
+        if hasattr(self.args, 'scheduler') and self.args.scheduler:
+            pod_spec.scheduler = self.args.scheduler
+        elif not pod_spec.scheduler:
+            pod_spec.scheduler = DEFAULT_SCHEDULER
 
-        # Pass GPU type as node selector
+        if hasattr(self.args, 'restart_policy') and self.args.restart_policy:
+            pod_spec.restart_policy = self.args.restart_policy
+        elif not pod_spec.restart_policy:
+            pod_spec.restart_policy = DEFAULT_RESTART_POLICY
+
+        if active_deadline_seconds is not None:
+            pod_spec.active_deadline_seconds = active_deadline_seconds
+        
+        # Node Selectors
+        if self.args.node_selector:
+            cli_selectors = {i.split('=')[0]:i.split('=')[1] for sublist in self.args.node_selector for i in sublist}
+            pod_spec.node_selectors.update(cli_selectors)
+        
         if hasattr(self.args, 'gpu_type') and self.args.gpu_type:
-            # pod_spec_args['node_selectors']['nvidia.com/gpu.product'] = self.args.gpu_type
-            pod_spec_args['node_selectors']['gpu-type'] = self.args.gpu_type
+            pod_spec.node_selectors['gpu-type'] = self.args.gpu_type
 
-        # Parse volume arguments
+        # Volumes - Deduplicate by name and mount_path (CLI args override template)
+        # Build a map of existing volumes from template
+        existing_volumes_by_name = {vol.name: vol for vol in pod_spec.volumes}
+        existing_volumes_by_mount = {vol.mount_path: vol for vol in pod_spec.volumes if vol.mount_path}
+        
         if self.args.volume:
-            volumes = self._parse_volume_arg(self.args.volume)
-            pod_spec_args['volumes'] = volumes
+            cli_volumes = self._parse_volume_arg(self.args.volume)
+            for v in cli_volumes:
+                # CLI volumes: only dedupe by mount_path, not by name
+                self._add_volume_with_dedup(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=False)
 
-        # Process shm-size as emptyDir volume mount to /dev/shm
         if self.args.shm_size:
-            shm_volume = self._parse_shm_size_arg(self.args.shm_size)
-            pod_spec_args['volumes'].append(shm_volume)
+            shm_vol = self._parse_shm_size_arg(self.args.shm_size)
+            # shm-volume: dedupe by both name and mount_path (auto-generated name)
+            self._add_volume_with_dedup(pod_spec, shm_vol, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
 
-        # TODO: Handle ports in general
-        # Format of ports: [{'name': 'port-name', 'container_port': 8888, 'host_port': 8888}, ...]
-        ports = []
-        # Parse ports from args (currently not implemented for non-jupyter jobs)
+        # Additional Volumes - Deduplicate by name and mount_path (auto-generated names like jupyter-notebooks-0)
+        for v in additional_volumes:
+            self._add_volume_with_dedup(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
 
-        # Handle ports for custom jobs using additional_ports argument
-        # For jupyter jobs, this will be the a port named 'jupyter'
-        ports.extend(additional_ports)
-
-        # Add Security Context to pod spec to pass the user
+        # Security Context
         # TODO: Make this optional with a flag?
-        pod_spec_args['securityContext'] = {
+        pod_spec.security_context = {
             'runAsUser': os.getuid(),
             'runAsGroup': os.getgid(),
             'fsGroup': os.getgid()
         }
 
-        # Process container spec arguments
-        container_spec_args = {
-            'name': 'main',
-            'image': self.args.image,
-            'image_pull_policy': self.args.image_pull_policy,
-            'command': self.args.shell + " -c" if hasattr(self.args, 'shell') and self.args.shell else "/bin/sh -c",
-            'args': command_override if command_override else (self.args.command if hasattr(self.args, 'command') else ""),
-            'env': {}, # To be filled from args.env
-            'workingDir': working_dir_override if working_dir_override else (self.args.working_dir if hasattr(self.args, 'working_dir') else None),
-            'volume_mounts': {}, # To be filled from pod_spec_args volumes
-            'resources': {
-                'cpu_request': self.args.cpu.split(':')[0],
-                'cpu_limit': self.args.cpu.split(':')[1] if ':' in self.args.cpu else self.args.cpu.split(':')[0],
-                'memory_request': self.args.memory.split(':')[0],
-                'memory_limit': self.args.memory.split(':')[1] if ':' in self.args.memory else self.args.memory.split(':')[0],
-                'gpu_count': self.args.gpu if hasattr(self.args, 'gpu') else None,
-                'gpu_type': self.args.gpu_type if hasattr(self.args, 'gpu_type') else None,
-                #'gpu_memory': self.args.gpu_memory, # Argument currently not implemented
-                'gpu_vendor': 'nvidia' # Currently only nvidia GPUs are supported
-            },
-            'is_initContainer': False
-        }
+        # Container Spec
+        if not pod_spec.containers:
+            pod_spec.containers.append(ContainerSpec(name='main'))
+        container = pod_spec.containers[0]
 
-        # Process pyenv argument
+        if self.args.image:
+            container.image = self.args.image
+        
+        if self.args.image_pull_policy:
+            container.image_pull_policy = self.args.image_pull_policy
+        
+        # Command
+        if hasattr(self.args, 'shell') and self.args.shell:
+             container.command = self.args.shell + " -c"
+        elif not container.command:
+             container.command = "/bin/sh -c"
+
+        if command_override:
+            container.args = [command_override]
+        elif hasattr(self.args, 'command') and self.args.command:
+            container.args = self.args.command.split()
+        
+        # Working Dir
+        if working_dir_override:
+            container.working_dir = working_dir_override
+        elif hasattr(self.args, 'working_dir') and self.args.working_dir:
+            container.working_dir = self.args.working_dir
+
+        # Env
+        if hasattr(self.args, 'env') and self.args.env:
+            container.env.update(self._parse_env_arg(self.args.env))
+        container.env.update(additional_envs)
+
+        # Volume Mounts
+        # Update mounts from new volumes
+        for vol in pod_spec.volumes:
+            if vol.mount_path:
+                container.volume_mounts[vol.name] = vol.mount_path
+
+        # Resources
+        if self.args.cpu:
+            req, lim = self.args.cpu.split(':') if ':' in self.args.cpu else (self.args.cpu, self.args.cpu)
+            container.resources.cpu_request = req
+            container.resources.cpu_limit = lim
+        elif not container.resources.cpu_request:
+             container.resources.cpu_request = DEFAULT_CPU.split(':')[0]
+             container.resources.cpu_limit = DEFAULT_CPU.split(':')[1]
+
+        if self.args.memory:
+            req, lim = self.args.memory.split(':') if ':' in self.args.memory else (self.args.memory, self.args.memory)
+            container.resources.memory_request = req
+            container.resources.memory_limit = lim
+        elif not container.resources.memory_request:
+             container.resources.memory_request = DEFAULT_MEMORY.split(':')[0]
+             container.resources.memory_limit = DEFAULT_MEMORY.split(':')[1]
+
+        if hasattr(self.args, 'gpu') and self.args.gpu:
+            container.resources.gpu_count = int(self.args.gpu)
+        
+        if hasattr(self.args, 'gpu_type') and self.args.gpu_type:
+            container.resources.gpu_type = self.args.gpu_type
+
+        # Pyenv - Deduplicate volumes (auto-generated names: pyenv-volume, uv-base-volume)
         if hasattr(self.args, 'pyenv') and self.args.pyenv:
             pyenv_volumes, pyenv_env_vars = self._parse_pyenv_arg(self.args.pyenv)
-            pod_spec_args['volumes'].extend(pyenv_volumes)
-            container_spec_args['env'].update(pyenv_env_vars)
+            for v in pyenv_volumes:
+                new_vol = self._add_volume_with_dedup(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
+                container.volume_mounts[new_vol.name] = new_vol.mount_path
+            container.env.update(pyenv_env_vars)
 
-        # Handle additional environment variables for custom jobs
-        container_spec_args['env'].update(additional_envs)
-
-        # Handle additional volume inputs for custom jobs such as HOME and jupyter config volumes for jupyter jobs
-        pod_spec_args['volumes'].extend(additional_volumes)
-
-        # Mount home and set HOME env var if --mount-home flag is provided
+        # Mount Home - Deduplicate volumes (auto-generated name: home-0)
         if self.args.mount_home:
             home_path = os.path.expanduser("~")
             home_volumes = self._parse_volume_arg([[home_path]], identifier="home")
-            pod_spec_args['volumes'].extend(home_volumes)
+            for v in home_volumes:
+                new_vol = self._add_volume_with_dedup(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
+                container.volume_mounts[new_vol.name] = new_vol.mount_path
+            container.env['HOME'] = home_path
+            if not container.working_dir:
+                container.working_dir = home_path
+            if not container.working_dir:
+                container.working_dir = home_path
 
-            # Env var for HOME
-            container_spec_args['env']['HOME'] = home_path
+        # Ports - Deduplicate by name (additional_ports override existing)
+        # TODO: Handling additional ports from outside, need to handle ports in general and implement port inputs from args (for forwarding in normal jobs)
+        existing_ports_by_name = {port['name']: port for port in job_config.ports if isinstance(port, dict) and 'name' in port}
+        for port in additional_ports:
+            if isinstance(port, dict) and 'name' in port:
+                # Remove conflicting port from template
+                if port['name'] in existing_ports_by_name:
+                    job_config.ports.remove(existing_ports_by_name[port['name']])
+                    existing_ports_by_name.pop(port['name'])
+                job_config.ports.append(port)
+                existing_ports_by_name[port['name']] = port
+            else:
+                # Port without name, just append
+                job_config.ports.append(port)
+        
+        # Flags
+        job_config.follow = self.args.follow if hasattr(self.args, 'follow') else False
+        job_config.dry_run = self.args.dry_run if hasattr(self.args, 'dry_run') else False
+        job_config.verbose = self.args.verbose if hasattr(self.args, 'verbose') else False
+        job_config.save_template = self.args.save_template if hasattr(self.args, 'save_template') else False
 
-            # If mount-home flag is provided, mount user home directory inside container at same path
-            container_spec_args['workingDir'] = home_path if not container_spec_args['workingDir'] else container_spec_args['workingDir']
-
-        # Parse environment variables
-        if hasattr(self.args, 'env') and self.args.env:
-            env_vars = self._parse_env_arg(self.args.env)
-            container_spec_args['env'].update(env_vars)
-
-        # Parse volume mounts for container spec from pod_spec_args volumes
-        for vol in pod_spec_args['volumes']:
-            container_spec_args['volume_mounts'][vol['name']] = vol['mount_path']
-
-        return {
-            'job_details_args': job_details_args,
-            'job_spec_args': job_spec_args,
-            'pod_spec_args': pod_spec_args,
-            'container_spec_args': container_spec_args,
-            'ports': ports,
-            'follow': self.args.follow if hasattr(self.args, 'follow') else False,
-            'dry_run': self.args.dry_run if hasattr(self.args, 'dry_run') else False,
-            'verbose': self.args.verbose if hasattr(self.args, 'verbose') else False,
-            'save_template': self.args.save_template if hasattr(self.args, 'save_template') else False
-        }
+        return job_config
 
 
     def _parse_shm_size_arg(self, shm_size):
@@ -289,6 +416,9 @@ class ProcessArguments:
         count = 0
         for vol_list in volume_args:
             for vol in vol_list:
+                # Skip None values
+                if vol is None:
+                    continue
                 # Parse volume string
                 vol_split = vol.split(':')
                 if len(vol_split) == 1:
@@ -338,6 +468,7 @@ class ProcessArguments:
                     key, value = env.split('=', 1)
                     env_vars[key] = value
                 else:
+                    print("******************", env)
                     raise ValueError("Invalid environment variable format. Use KEY=VALUE or provide a valid env file path.")
         return env_vars
     
@@ -397,3 +528,8 @@ class ProcessArguments:
         # pyenv_env_vars.update({'PYTHONUNBUFFERED': '1'}) # To ensure python output is unbuffered in logs
         
         return pyenv_volume_details, pyenv_env_vars
+
+    def _load_job_config(self, path):
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f)
+        return JobConfig.from_dict(data)
