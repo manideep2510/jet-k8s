@@ -29,7 +29,6 @@ def print_job_yaml(job_yaml, dry_run=False, verbose=False):
         print("=" * 80)
         print(job_yaml)
         print("=" * 80 + "\n")
-        return
     elif verbose:
         print("=" * 80)
         print("Verbose mode: Job spec:")
@@ -80,386 +79,7 @@ def submit_job(job_config, dry_run=False, verbose=False):
         # )
 
     except Exception as e:
-        print(f"Error submitting job with subprocess: {e}")
-
-
-class TemplateInfo:
-    TEMPLATE_RE = re.compile(
-        r"^(?P<job_name>.+)_(?P<job_type>[^_]+)_template_(?P<ts>[0-9]{8}-[0-9]{6}-[0-9]{6})\.(?P<ext>yaml|yml)$",
-        re.IGNORECASE,
-    )
-
-    def __init__(self, path, job_name, job_type, timestamp):
-        self.path = path
-        self.job_name = job_name
-        self.job_type = job_type
-        self.timestamp = timestamp
-
-    @classmethod
-    def from_path(cls, p):
-        m = cls.TEMPLATE_RE.match(p.name)
-        if not m:
-            return None
-        ts_txt = m.group("ts")
-        try:
-            ts = datetime.strptime(ts_txt, "%Y%m%d-%H%M%S-%f").replace(tzinfo=timezone.utc)
-        except Exception:
-            ts = None
-
-        # Only base name is stored in path
-        return cls(path=p.name, job_name=m.group("job_name"), job_type=m.group("job_type"), timestamp=ts)
-
-class TemplateManager():
-    def __init__(self, templates_dir=None):
-        if templates_dir is None:
-            self.templates_dir = Path.home() / ".jet" / "templates"
-        else:
-            self.templates_dir = Path(templates_dir)
-        self.templates_dir.mkdir(parents=True, exist_ok=True)
-        self.TS_RE = re.compile(r"_template_(?P<ts>\d{8}-\d{6}-\d{6})\.(yaml|yml)$")
-
-    def save_job_template(self, job_config, job_name, job_type, verbose= False):
-        print_job_yaml(yaml.dump(job_config, sort_keys=False, default_flow_style=False),
-                    verbose=verbose)
-
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-        filename = f"{job_name}_{job_type}_template_{timestamp}.yaml"
-        job_yaml_path = self.templates_dir / filename
-        # Write YAML
-        with job_yaml_path.open("w") as f:
-            yaml.dump(job_config, f, sort_keys=False, default_flow_style=False)
-
-        print(f"Job template saved to {job_yaml_path}")
-        return str(job_yaml_path)
-
-    def resolve_template_path(self, template_arg: str, job_type: str) -> str:
-        """
-        Resolve either:
-        - a path to an existing YAML file (absolute or relative), or
-        - a template name (job_name) which will be searched in ~/.jet/templates/
-            matching: {job_name}_{job_type}_template_*.yaml or *.yml
-        Returns the absolute path to the template file as a string.
-        Raises ValueError if nothing matches.
-        """
-        # Treat input as a path first (expand ~ and relative)
-        candidate = Path(template_arg).expanduser().resolve()
-        if candidate.is_file():
-            return str(candidate)
-
-        # Fallback: search ~/.jet/templates/ for matching template files
-        if not self.templates_dir.is_dir():
-            raise ValueError(f"Template directory not found: {self.templates_dir}. Please ensure it exists.")
-
-        # Use stem of template_arg to accept inputs like "foo", "foo.yaml", or "dir/foo"
-        job_name_stem = Path(template_arg).stem
-        prefix = f"{job_name_stem}_{job_type}_template_"
-
-        # Gather matches (only files), support .yaml and .yml
-        matches = [p for p in self.templates_dir.iterdir()
-                if p.is_file() and p.suffix.lower() in (".yaml", ".yml") and p.name.startswith(prefix)]
-
-        if not matches:
-            raise ValueError(
-                f"No templates named {job_name_stem} found in {self.templates_dir}. "
-                "Provide a valid template name saved in ~/.jet/templates/ or a full path to a job yaml file."
-            )
-
-        latest = max(matches, key=lambda p: p.stat().st_mtime)
-        return str(latest)
-
-    def _discover_all(self):
-        infos = []
-        for p in self.templates_dir.iterdir():
-            if not p.is_file():
-                continue
-            ti = TemplateInfo.from_path(p)
-            if ti:
-                infos.append(ti)
-        return infos
-        
-    def _ts_from_template_info(self, ti):
-        """
-        Extract timestamp from template info (the one you write into templates).
-        Return a timezone-aware datetime in UTC if parse succeeds.
-        If parsing fails, fallback to filesystem mtime (UTC).
-        If that also fails, return epoch (1970-01-01 UTC).
-        """
-        if ti.timestamp is not None:
-            return ti.timestamp
-
-        # fallback to filesystem mtime if timestamp not present
-        try:
-            return datetime.fromtimestamp(Path(ti.path).stat().st_mtime, tz=timezone.utc)
-        except Exception:
-            return datetime.fromtimestamp(0, tz=timezone.utc)
-
-    def list_templates(self, job_type=None, verbose=False,
-                   filter_by=None, filter_regex=None,
-                   sort_by="name"):
-        """
-        Returns structure:
-            { job_type: { job_name: { "paths": [str,...], "latest": str } } }
-
-        Behavior:
-        - All versions of a template (same job_name) are ALWAYS sorted by timestamp (newest first)
-        - "latest" is ALWAYS computed by timestamp
-        - sort_by="time" sorts job_name groups (different templates) by their latest timestamp
-        - sort_by="name" sorts job_name groups alphabetically
-        """
-        infos = self._discover_all()  # list[TemplateInfo]
-        if job_type:
-            job_type = job_type.lower()
-
-        regex = re.compile(filter_regex) if filter_regex else None
-
-        # grouped: job_type -> job_name -> {"versions": [(path, ts), ...], "_latest_ts": datetime}
-        grouped = defaultdict(lambda: defaultdict(lambda: {"versions": []}))
-
-        # Build grouped structure once with timestamps
-        for ti in infos:
-            if job_type and ti.job_type.lower() != job_type:
-                continue
-            if filter_by and filter_by not in ti.job_name:
-                continue
-            if regex and not regex.search(ti.job_name):
-                continue
-
-            # Determine timestamp: use parsed timestamp from TemplateInfo when available,
-            # otherwise fall back to filesystem mtime (UTC), otherwise epoch.
-            ts = self._ts_from_template_info(ti)
-
-            grouped[ti.job_type][ti.job_name]["versions"].append((str(ti.path), ts))
-
-        # For each job_name sort versions newest-first and set latest & _latest_ts
-        for jtype, jobs in grouped.items():
-            for jname, info in jobs.items():
-                versions = info.get("versions", [])
-
-                # Sort newest-first by timestamp (deterministic)
-                versions.sort(key=lambda x: x[1], reverse=True)
-
-                # Write back 'paths' list (newest -> oldest)
-                info["paths"] = [p for p, _ in versions]
-
-                # Set latest path and its timestamp for job-level sorting
-                if versions:
-                    info["latest"] = versions[0][0]
-                    info["_latest_ts"] = versions[0][1]
-                else:
-                    info["latest"] = None
-                    info["_latest_ts"] = None
-
-        # Sort job_name groups according to sort_by and drop ephemeral keys
-        for jtype, jobs in list(grouped.items()):
-            if sort_by == "time":
-                # Sort job_names by their latest ts (newest job_name first)
-                sorted_items = sorted(
-                    jobs.items(),
-                    key=lambda kv: (kv[1].get("_latest_ts") is not None, kv[1].get("_latest_ts")),
-                    reverse=True,
-                )
-            else:
-                # sort by job_name lexicographically
-                sorted_items = sorted(jobs.items(), key=lambda kv: kv[0])
-
-            new_jobs = {}
-            for jname, info in sorted_items:
-                # Remove helper fields before returning
-                info.pop("_latest_ts", None)
-                # Keep only paths and latest (latest only if verbose or you always want it)
-                if not verbose:
-                    info.pop("paths", None)
-                # Remove versions list (we exposed paths instead)
-                info.pop("versions", None)
-                new_jobs[jname] = info
-
-            grouped[jtype] = new_jobs
-
-        # If job_type requested, return just that subsection
-        return grouped.get(job_type, {}) if job_type else grouped
-    
-    def print_templates(self, job_type=None, verbose=False,
-                        filter_by=None, filter_regex=None,
-                        sort_by="name"):
-        templates = self.list_templates(
-            job_type=job_type,
-            verbose=verbose,
-            filter_by=filter_by,
-            filter_regex=filter_regex,
-            sort_by=sort_by
-        )
-
-        if not templates:
-            print("No templates found.")
-            return
-
-        # If verbose, print all paths and mark latest
-        templates_dict = {}
-        for jtype, jobs in templates.items():
-            templates_dict[jtype] = {}
-            for jname, info in jobs.items():
-                if verbose:
-                    paths_info = []
-                    for p in info.get("paths", []):
-                        mark = " (latest)" if p == info.get("latest") else ""
-                        paths_info.append(f"{p}{mark}")
-                    templates_dict[jtype][jname] = paths_info
-                else:
-                    mark = " (latest)" if info.get("latest") else ""
-                    templates_dict[jtype][jname] = f"{info.get('latest', 'None')}{mark}"
-        print_tables_wrapped(templates_dict, headers=["Job Type", "Job Name", "Template(s)"], padding=4)
-    
-    # TODO: add delete_template method
-    # TODO: add clear_templates method
-
-# Pretty print functions (for listing templates and other items)
-def _is_scalar(x):
-    return not isinstance(x, (dict, list))
-
-def _gather_rows(obj, path, rows):
-    """
-    Args:
-        obj: nested dict/list/scalar
-        path: list of keys representing the current path in the nested structure
-        rows: list to append the gathered rows to
-    """
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            _gather_rows(v, path + [str(k)], rows)
-    elif isinstance(obj, list):
-        for item in obj:
-            if _is_scalar(item):
-                rows.append(path + [str(item)])
-            else:
-                _gather_rows(item, path, rows)
-    else:
-        rows.append(path + [str(obj)])
-
-def print_tables_wrapped(data,
-                         headers=None,
-                         max_total_width=None,
-                         padding=2,
-                         min_col_width=8):
-    """
-    Print an arbitrarily-nested mapping `data` as a merged-column table with wrapping.
-
-    Args:
-      data: nested mapping (dict -> dict -> ... -> list/string)
-      headers: optional list of header strings; auto-generates Head1..N if omitted
-      max_total_width: optional total width to fit the table into (defaults to terminal width)
-      padding: spaces between columns
-      min_col_width: minimum width allowed for a column after distribution
-    """
-    # 1) gather rows (each row is a list of column values)
-    rows = []
-    _gather_rows(data, [], rows)
-    if not rows:
-        print("(no data)")
-        return
-
-    # 2) normalize row lengths to same number of columns
-    max_cols = max(len(r) for r in rows)
-    for r in rows:
-        if len(r) < max_cols:
-            r.extend([""] * (max_cols - len(r)))
-
-    # 3) build headers
-    if headers:
-        if len(headers) < max_cols:
-            headers = list(headers) + [f"Head{i}" for i in range(len(headers)+1, max_cols+1)]
-        else:
-            headers = list(headers[:max_cols])
-    else:
-        headers = [f"Head{i}" for i in range(1, max_cols+1)]
-
-    # 4) available width
-    term_w = shutil.get_terminal_size((120, 30)).columns
-    total_w = max_total_width or term_w
-    # reserved for paddings between columns
-    total_padding = padding * (max_cols - 1)
-    usable = max(total_w - total_padding, max_cols * min_col_width)
-
-    # 5) compute initial natural column widths (max of header and content lengths)
-    natural = []
-    for c in range(max_cols):
-        w = len(str(headers[c]))
-        for r in rows:
-            w = max(w, len(str(r[c])))
-        natural.append(w)
-
-    # 6) if sum(natural) <= usable, use natural widths; else scale down proportionally but enforce min_col_width
-    sum_nat = sum(natural)
-    if sum_nat <= usable:
-        col_widths = natural
-    else:
-        # proportional shrink
-        col_widths = [max(min_col_width, int(n * usable / sum_nat)) for n in natural]
-        # fix rounding so sum(col_widths) == usable by distributing leftover
-        cur_sum = sum(col_widths)
-        i = 0
-        while cur_sum < usable:
-            col_widths[i % max_cols] += 1
-            cur_sum += 1
-            i += 1
-        while cur_sum > usable:
-            # reduce where possible
-            for j in range(max_cols):
-                if col_widths[j] > min_col_width and cur_sum > usable:
-                    col_widths[j] -= 1
-                    cur_sum -= 1
-                if cur_sum == usable:
-                    break
-
-    # 7) prepare wrapped cell cache: for each row and col produce list[str] lines
-    wrapped_rows = []
-    for r in rows:
-        wrapped_row = []
-        for i, cell in enumerate(r):
-            txt = "" if cell is None else str(cell)
-            # wrap, preserving words; ensure at least one line
-            wrapped = textwrap.wrap(txt, width=col_widths[i]) or [""]
-            wrapped_row.append(wrapped)
-        wrapped_rows.append(wrapped_row)
-
-    # 8) prepare header wrapped (single-line headers padded)
-    header_cells = [headers[i].ljust(col_widths[i]) for i in range(max_cols)]
-    header_line = (" " * padding).join(header_cells)
-    print(header_line)
-    print("-" * min(total_w, len(header_line)))
-
-    # 9) printing rows while suppressing repeated cells vertically:
-    prev_full = [""] * max_cols  # store full original cell text used to decide repeat suppression
-
-    for wrapped_row in wrapped_rows:
-        # compute number of physical lines this logical row will expand to
-        height = max(len(wrapped_row[i]) for i in range(max_cols))
-
-        # for each column determine whether it should print or be blank (compare full cell text to prev)
-        will_print = []
-        full_texts = ["\n".join(wrapped_row[i]) for i in range(max_cols)]
-        for i in range(max_cols):
-            if full_texts[i] != prev_full[i]:
-                # we will print this column's wrapped block (height lines), and reset lower prevs
-                will_print.append(True)
-                prev_full[i] = full_texts[i]
-                # reset lower-level prevs so they reappear when higher changes
-                for j in range(i+1, max_cols):
-                    prev_full[j] = ""
-            else:
-                will_print.append(False)
-
-        # Now print the physical lines (0..height-1)
-        for line_idx in range(height):
-            out_cells = []
-            for i in range(max_cols):
-                if will_print[i]:
-                    lines = wrapped_row[i]
-                    cell_line = lines[line_idx] if line_idx < len(lines) else ""
-                    out_cells.append(cell_line.ljust(col_widths[i]))
-                else:
-                    # column suppressed (same as previous), print blanks of column width
-                    out_cells.append(" " * col_widths[i])
-            print((" " * padding).join(out_cells))
+        raise Exception(f"Error submitting job with subprocess: {e}")
 
 def delete_resource(name, resource_type, namespace='default'):
     """
@@ -790,3 +410,381 @@ def exec_into_pod(pod_name, namespace='default', shell='/bin/sh'):
     except Exception as e:
         # print(f"Error executing into pod {pod_name}: {e}")
         raise Exception(e)
+
+class TemplateInfo:
+    TEMPLATE_RE = re.compile(
+        r"^(?P<job_name>.+)_(?P<job_type>[^_]+)_template_(?P<ts>[0-9]{8}-[0-9]{6}-[0-9]{6})\.(?P<ext>yaml|yml)$",
+        re.IGNORECASE,
+    )
+
+    def __init__(self, path, job_name, job_type, timestamp):
+        self.path = path
+        self.job_name = job_name
+        self.job_type = job_type
+        self.timestamp = timestamp
+
+    @classmethod
+    def from_path(cls, p):
+        m = cls.TEMPLATE_RE.match(p.name)
+        if not m:
+            return None
+        ts_txt = m.group("ts")
+        try:
+            ts = datetime.strptime(ts_txt, "%Y%m%d-%H%M%S-%f").replace(tzinfo=timezone.utc)
+        except Exception:
+            ts = None
+
+        # Only base name is stored in path
+        return cls(path=p.name, job_name=m.group("job_name"), job_type=m.group("job_type"), timestamp=ts)
+
+class TemplateManager():
+    def __init__(self, templates_dir=None):
+        if templates_dir is None:
+            self.templates_dir = Path.home() / ".jet" / "templates"
+        else:
+            self.templates_dir = Path(templates_dir)
+        self.templates_dir.mkdir(parents=True, exist_ok=True)
+        self.TS_RE = re.compile(r"_template_(?P<ts>\d{8}-\d{6}-\d{6})\.(yaml|yml)$")
+
+    def save_job_template(self, job_config, job_name, job_type, verbose= False):
+        print_job_yaml(yaml.dump(job_config, sort_keys=False, default_flow_style=False),
+                    verbose=verbose)
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        filename = f"{job_name}_{job_type}_template_{timestamp}.yaml"
+        job_yaml_path = self.templates_dir / filename
+        # Write YAML
+        with job_yaml_path.open("w") as f:
+            yaml.dump(job_config, f, sort_keys=False, default_flow_style=False)
+
+        print(f"Job template saved to {job_yaml_path}")
+        return str(job_yaml_path)
+
+    def resolve_template_path(self, template_arg: str, job_type: str) -> str:
+        """
+        Resolve either:
+        - a path to an existing YAML file (absolute or relative), or
+        - a template name (job_name) which will be searched in ~/.jet/templates/
+            matching: {job_name}_{job_type}_template_*.yaml or *.yml
+        Returns the absolute path to the template file as a string.
+        Raises ValueError if nothing matches.
+        """
+        # Treat input as a path first (expand ~ and relative)
+        candidate = Path(template_arg).expanduser().resolve()
+        if candidate.is_file():
+            return str(candidate)
+
+        # Fallback: search ~/.jet/templates/ for matching template files
+        if not self.templates_dir.is_dir():
+            raise ValueError(f"Template directory not found: {self.templates_dir}. Please ensure it exists.")
+
+        # Use stem of template_arg to accept inputs like "foo", "foo.yaml", or "dir/foo"
+        job_name_stem = Path(template_arg).stem
+        prefix = f"{job_name_stem}_{job_type}_template_"
+
+        # Gather matches (only files), support .yaml and .yml
+        matches = [p for p in self.templates_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in (".yaml", ".yml") and p.name.startswith(prefix)]
+
+        if not matches:
+            raise ValueError(
+                f"No templates named {job_name_stem} found in {self.templates_dir}. "
+                "Provide a valid template name saved in ~/.jet/templates/ or a full path to a job yaml file."
+            )
+
+        latest = max(matches, key=lambda p: p.stat().st_mtime)
+        return str(latest)
+
+    def _discover_all(self):
+        infos = []
+        for p in self.templates_dir.iterdir():
+            if not p.is_file():
+                continue
+            ti = TemplateInfo.from_path(p)
+            if ti:
+                infos.append(ti)
+        return infos
+        
+    def _ts_from_template_info(self, ti):
+        """
+        Extract timestamp from template info (the one you write into templates).
+        Return a timezone-aware datetime in UTC if parse succeeds.
+        If parsing fails, fallback to filesystem mtime (UTC).
+        If that also fails, return epoch (1970-01-01 UTC).
+        """
+        if ti.timestamp is not None:
+            return ti.timestamp
+
+        # fallback to filesystem mtime if timestamp not present
+        try:
+            return datetime.fromtimestamp(Path(ti.path).stat().st_mtime, tz=timezone.utc)
+        except Exception:
+            return datetime.fromtimestamp(0, tz=timezone.utc)
+
+    def list_templates(self, job_type=None, verbose=False,
+                   filter_by=None, filter_regex=None,
+                   sort_by="name"):
+        """
+        Returns structure:
+            { job_type: { job_name: { "paths": [str,...], "latest": str } } }
+
+        Behavior:
+        - All versions of a template (same job_name) are ALWAYS sorted by timestamp (newest first)
+        - "latest" is ALWAYS computed by timestamp
+        - sort_by="time" sorts job_name groups (different templates) by their latest timestamp
+        - sort_by="name" sorts job_name groups alphabetically
+        """
+        infos = self._discover_all()  # list[TemplateInfo]
+        if job_type:
+            job_type = job_type.lower()
+
+        regex = re.compile(filter_regex) if filter_regex else None
+
+        # grouped: job_type -> job_name -> {"versions": [(path, ts), ...], "_latest_ts": datetime}
+        grouped = defaultdict(lambda: defaultdict(lambda: {"versions": []}))
+
+        # Build grouped structure once with timestamps
+        for ti in infos:
+            if job_type and ti.job_type.lower() != job_type:
+                continue
+            if filter_by and filter_by not in ti.job_name:
+                continue
+            if regex and not regex.search(ti.job_name):
+                continue
+
+            # Determine timestamp: use parsed timestamp from TemplateInfo when available,
+            # otherwise fall back to filesystem mtime (UTC), otherwise epoch.
+            ts = self._ts_from_template_info(ti)
+
+            grouped[ti.job_type][ti.job_name]["versions"].append((str(ti.path), ts))
+
+        # For each job_name sort versions newest-first and set latest & _latest_ts
+        for jtype, jobs in grouped.items():
+            for jname, info in jobs.items():
+                versions = info.get("versions", [])
+
+                # Sort newest-first by timestamp (deterministic)
+                versions.sort(key=lambda x: x[1], reverse=True)
+
+                # Write back 'paths' list (newest -> oldest)
+                info["paths"] = [p for p, _ in versions]
+
+                # Set latest path and its timestamp for job-level sorting
+                if versions:
+                    info["latest"] = versions[0][0]
+                    info["_latest_ts"] = versions[0][1]
+                else:
+                    info["latest"] = None
+                    info["_latest_ts"] = None
+
+        # Sort job_name groups according to sort_by and drop ephemeral keys
+        for jtype, jobs in list(grouped.items()):
+            if sort_by == "time":
+                # Sort job_names by their latest ts (newest job_name first)
+                sorted_items = sorted(
+                    jobs.items(),
+                    key=lambda kv: (kv[1].get("_latest_ts") is not None, kv[1].get("_latest_ts")),
+                    reverse=True,
+                )
+            else:
+                # sort by job_name lexicographically
+                sorted_items = sorted(jobs.items(), key=lambda kv: kv[0])
+
+            new_jobs = {}
+            for jname, info in sorted_items:
+                # Remove helper fields before returning
+                info.pop("_latest_ts", None)
+                # Keep only paths and latest (latest only if verbose or you always want it)
+                if not verbose:
+                    info.pop("paths", None)
+                # Remove versions list (we exposed paths instead)
+                info.pop("versions", None)
+                new_jobs[jname] = info
+
+            grouped[jtype] = new_jobs
+
+        # If job_type requested, return just that subsection
+        return grouped.get(job_type, {}) if job_type else grouped
+    
+    def print_templates(self, job_type=None, verbose=False,
+                        filter_by=None, filter_regex=None,
+                        sort_by="name"):
+        templates = self.list_templates(
+            job_type=job_type,
+            verbose=verbose,
+            filter_by=filter_by,
+            filter_regex=filter_regex,
+            sort_by=sort_by
+        )
+
+        if not templates:
+            print("No templates found.")
+            return
+
+        # If verbose, print all paths and mark latest
+        templates_dict = {}
+        for jtype, jobs in templates.items():
+            templates_dict[jtype] = {}
+            for jname, info in jobs.items():
+                if verbose:
+                    paths_info = []
+                    for p in info.get("paths", []):
+                        mark = " (latest)" if p == info.get("latest") else ""
+                        paths_info.append(f"{p}{mark}")
+                    templates_dict[jtype][jname] = paths_info
+                else:
+                    mark = " (latest)" if info.get("latest") else ""
+                    templates_dict[jtype][jname] = f"{info.get('latest', 'None')}{mark}"
+        print_tables_wrapped(templates_dict, headers=["Job Type", "Template Name", "Template(s)"], padding=4)
+    
+    # TODO: add delete_template method
+    # TODO: add clear_templates method
+
+# Pretty print functions (for listing templates and other items)
+def _is_scalar(x):
+    return not isinstance(x, (dict, list))
+
+def _gather_rows(obj, path, rows):
+    """
+    Args:
+        obj: nested dict/list/scalar
+        path: list of keys representing the current path in the nested structure
+        rows: list to append the gathered rows to
+    """
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            _gather_rows(v, path + [str(k)], rows)
+    elif isinstance(obj, list):
+        for item in obj:
+            if _is_scalar(item):
+                rows.append(path + [str(item)])
+            else:
+                _gather_rows(item, path, rows)
+    else:
+        rows.append(path + [str(obj)])
+
+def print_tables_wrapped(data,
+                         headers=None,
+                         max_total_width=None,
+                         padding=2,
+                         min_col_width=8):
+    """
+    Print an arbitrarily-nested mapping `data` as a merged-column table with wrapping.
+
+    Args:
+      data: nested mapping (dict -> dict -> ... -> list/string)
+      headers: optional list of header strings; auto-generates Head1..N if omitted
+      max_total_width: optional total width to fit the table into (defaults to terminal width)
+      padding: spaces between columns
+      min_col_width: minimum width allowed for a column after distribution
+    """
+    # 1) gather rows (each row is a list of column values)
+    rows = []
+    _gather_rows(data, [], rows)
+    if not rows:
+        print("(no data)")
+        return
+
+    # 2) normalize row lengths to same number of columns
+    max_cols = max(len(r) for r in rows)
+    for r in rows:
+        if len(r) < max_cols:
+            r.extend([""] * (max_cols - len(r)))
+
+    # 3) build headers
+    if headers:
+        if len(headers) < max_cols:
+            headers = list(headers) + [f"Head{i}" for i in range(len(headers)+1, max_cols+1)]
+        else:
+            headers = list(headers[:max_cols])
+    else:
+        headers = [f"Head{i}" for i in range(1, max_cols+1)]
+
+    # 4) available width
+    term_w = shutil.get_terminal_size((120, 30)).columns
+    total_w = max_total_width or term_w
+    # reserved for paddings between columns
+    total_padding = padding * (max_cols - 1)
+    usable = max(total_w - total_padding, max_cols * min_col_width)
+
+    # 5) compute initial natural column widths (max of header and content lengths)
+    natural = []
+    for c in range(max_cols):
+        w = len(str(headers[c]))
+        for r in rows:
+            w = max(w, len(str(r[c])))
+        natural.append(w)
+
+    # 6) if sum(natural) <= usable, use natural widths; else scale down proportionally but enforce min_col_width
+    sum_nat = sum(natural)
+    if sum_nat <= usable:
+        col_widths = natural
+    else:
+        # proportional shrink
+        col_widths = [max(min_col_width, int(n * usable / sum_nat)) for n in natural]
+        # fix rounding so sum(col_widths) == usable by distributing leftover
+        cur_sum = sum(col_widths)
+        i = 0
+        while cur_sum < usable:
+            col_widths[i % max_cols] += 1
+            cur_sum += 1
+            i += 1
+        while cur_sum > usable:
+            # reduce where possible
+            for j in range(max_cols):
+                if col_widths[j] > min_col_width and cur_sum > usable:
+                    col_widths[j] -= 1
+                    cur_sum -= 1
+                if cur_sum == usable:
+                    break
+
+    # 7) prepare wrapped cell cache: for each row and col produce list[str] lines
+    wrapped_rows = []
+    for r in rows:
+        wrapped_row = []
+        for i, cell in enumerate(r):
+            txt = "" if cell is None else str(cell)
+            # wrap, preserving words; ensure at least one line
+            wrapped = textwrap.wrap(txt, width=col_widths[i]) or [""]
+            wrapped_row.append(wrapped)
+        wrapped_rows.append(wrapped_row)
+
+    # 8) prepare header wrapped (single-line headers padded)
+    header_cells = [headers[i].ljust(col_widths[i]) for i in range(max_cols)]
+    header_line = (" " * padding).join(header_cells)
+    print(header_line)
+    print("-" * min(total_w, len(header_line)))
+
+    # 9) printing rows while suppressing repeated cells vertically:
+    prev_full = [""] * max_cols  # store full original cell text used to decide repeat suppression
+
+    for wrapped_row in wrapped_rows:
+        # compute number of physical lines this logical row will expand to
+        height = max(len(wrapped_row[i]) for i in range(max_cols))
+
+        # for each column determine whether it should print or be blank (compare full cell text to prev)
+        will_print = []
+        full_texts = ["\n".join(wrapped_row[i]) for i in range(max_cols)]
+        for i in range(max_cols):
+            if full_texts[i] != prev_full[i]:
+                # we will print this column's wrapped block (height lines), and reset lower prevs
+                will_print.append(True)
+                prev_full[i] = full_texts[i]
+                # reset lower-level prevs so they reappear when higher changes
+                for j in range(i+1, max_cols):
+                    prev_full[j] = ""
+            else:
+                will_print.append(False)
+
+        # Now print the physical lines (0..height-1)
+        for line_idx in range(height):
+            out_cells = []
+            for i in range(max_cols):
+                if will_print[i]:
+                    lines = wrapped_row[i]
+                    cell_line = lines[line_idx] if line_idx < len(lines) else ""
+                    out_cells.append(cell_line.ljust(col_widths[i]))
+                else:
+                    # column suppressed (same as previous), print blanks of column width
+                    out_cells.append(" " * col_widths[i])
+            print((" " * padding).join(out_cells))

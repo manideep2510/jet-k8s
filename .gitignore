@@ -212,3 +212,7 @@ thumbs.db
 logs/
 garbage/
 tests/
+*.yaml
+*.yml
+*.pyc
+pyvenv.cfg

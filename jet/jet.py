@@ -3,13 +3,14 @@
 
 import argparse
 from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager
-from .job_builder import ContainerBuilder, PodSpecBuilder, JobSpecBuilder, JobBuilder
 from .process_args import ProcessArguments
 import time
 import signal
 
 
 def parse_arguments():
+
+    # Note: No default values are set here for any arguments, as defaults are handled in process_args.py based on template or default values.
     parser = argparse.ArgumentParser(description="Jet CLI Tool")
     subparsers = parser.add_subparsers(dest='jet_command')
 
@@ -25,17 +26,17 @@ def parse_arguments():
     job_parser.add_argument('--image', help='Container image name')
     job_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
     job_parser.add_argument('--command', help='Command to run in the container')
-    job_parser.add_argument('--shell', default='/bin/sh', help='Shell to use for the command')
+    job_parser.add_argument('--shell', help='Shell to use for the command')
     job_parser.add_argument('--pyenv', help='Path to Python environment. Supported envs: conda, venv, uv.')
-    job_parser.add_argument('--scheduler', default='kai-scheduler', help='Scheduler name')
-    job_parser.add_argument('--priority', default='train', help='Job priority')
-    job_parser.add_argument('--restart-policy', choices=['Never', 'OnFailure', 'Always'], default='Never', help='Pod restart policy')
+    job_parser.add_argument('--scheduler', help='Scheduler name')
+    job_parser.add_argument('--priority', help='Job priority')
+    job_parser.add_argument('--restart-policy', choices=['Never', 'OnFailure', 'Always'], help='Pod restart policy')
     job_parser.add_argument('--volume', '-v', action='append', nargs='+', help='Volumes to mount. Format: [<volume_name>:]<host_path>[:<mount_path>][:Type]')
     job_parser.add_argument('--working-dir', help='Working directory inside the container')
     job_parser.add_argument('--shm-size', help='Size of /dev/shm')
     job_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
-    job_parser.add_argument('--cpu', default='1:1', help='CPU request and limit. Format: request[:limit]')
-    job_parser.add_argument('--memory', default='4Gi:4Gi', help='Memory request and limit. Format: request[:limit]')
+    job_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
+    job_parser.add_argument('--memory', help='Memory request and limit. Format: request[:limit]')
     job_parser.add_argument('--gpu', help='Number of GPUs to request')
     job_parser.add_argument('--gpu-type', help='Type of GPU to request')
     job_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')
@@ -53,14 +54,14 @@ def parse_arguments():
     jupyter_parser.add_argument('--image', help='Container image name')
     jupyter_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
     jupyter_parser.add_argument('--pyenv', help='Path to Python environment. Supported envs: conda, venv, uv.')
-    jupyter_parser.add_argument('--scheduler', default='kai-scheduler', help='Scheduler name')
-    jupyter_parser.add_argument('--port', default='8888', help='Optional host port number to forward the port 8888 of Jupyter server inside the pod and optional Jupyter port to customize port inside pod. Format: [forward_port]:[jupyter_port]')
+    jupyter_parser.add_argument('--scheduler', help='Scheduler name')
+    jupyter_parser.add_argument('--port', help='Optional host port number to forward the port 8888 of Jupyter server inside the pod and optional Jupyter port to customize port inside pod. Format: [forward_port]:[jupyter_port]')
     jupyter_parser.add_argument('--notebooks-dir', '-nd', help='Path to Jupyter notebooks directory on host machine to mount inside the container')
     jupyter_parser.add_argument('--volume', '-v', action='append', nargs='+', help='Additional volumes to mount. Format: [<volume_name>:]<host_path>[:<mount_path>][:Type]')
     jupyter_parser.add_argument('--shm-size', help='Size of /dev/shm')
     jupyter_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
-    jupyter_parser.add_argument('--cpu', default='1:1', help='CPU request and limit. Format: request[:limit]')
-    jupyter_parser.add_argument('--memory', default='4Gi:4Gi', help='Memory request and limit. Format: request[:limit]')
+    jupyter_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
+    jupyter_parser.add_argument('--memory', help='Memory request and limit. Format: request[:limit]')
     jupyter_parser.add_argument('--gpu', help='Number of GPUs to request')
     jupyter_parser.add_argument('--gpu-type', help='Type of GPU to request')
     jupyter_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')
@@ -78,16 +79,16 @@ def parse_arguments():
     debug_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     debug_parser.add_argument('--image', help='Container image name')
     debug_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
-    debug_parser.add_argument('--duration', type=int, default=21600, help='Duration of the debug session in seconds (default: 21600 seconds = 6 hours)')
-    debug_parser.add_argument('--shell', default='/bin/sh', help='Shell to use for the debug session. If zsh is required, user must provide image with zsh installed, set --shell /bin/zsh, and mount user home/zsh files if needed using --volume flag')
+    debug_parser.add_argument('--duration', type=int, help='Duration of the debug session in seconds (default: 21600 seconds = 6 hours)')
+    debug_parser.add_argument('--shell', help='Shell to use for the debug session. If zsh is required, user must provide image with zsh installed, set --shell /bin/zsh, and mount user home/zsh files if needed using --volume flag')
     debug_parser.add_argument('--pyenv', help='Path to Python environment. Supported envs: conda, venv, uv.')
-    debug_parser.add_argument('--scheduler', default='kai-scheduler', help='Scheduler name')
+    debug_parser.add_argument('--scheduler', help='Scheduler name')
     debug_parser.add_argument('--volume', '-v', action='append', nargs='+', help='Volumes to mount. Format: [<volume_name>:]<host_path>[:<mount_path>][:Type]')
     debug_parser.add_argument('--working-dir', help='Working directory inside the container')
     debug_parser.add_argument('--shm-size', help='Size of /dev/shm')
     debug_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
-    debug_parser.add_argument('--cpu', default='1:1', help='CPU request and limit. Format: request[:limit]')
-    debug_parser.add_argument('--memory', default='4Gi:4Gi', help='Memory request and limit. Format: request[:limit]')
+    debug_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
+    debug_parser.add_argument('--memory', help='Memory request and limit. Format: request[:limit]')
     debug_parser.add_argument('--gpu', help='Number of GPUs to request')
     debug_parser.add_argument('--gpu-type', help='Type of GPU to request')
     debug_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')
@@ -151,49 +152,35 @@ class Jet():
         self.template_manager = TemplateManager()
 
     def launch_job(self):
-
-        job_details_args = self.processed_args['job_details_args']
-        job_spec_args = self.processed_args['job_spec_args']
-        pod_spec_args = self.processed_args['pod_spec_args']
-        container_spec_args = self.processed_args['container_spec_args']
-        follow = self.processed_args['follow']
-        save_template = self.processed_args['save_template']
-
-        container_specs = ContainerBuilder(**container_spec_args).build()
-        pod_spec_args['containers'] = [container_specs]
-        pod_spec = PodSpecBuilder(**pod_spec_args).build()
-        job_spec_args['pod_spec'] = pod_spec
-        job_spec = JobSpecBuilder(**job_spec_args).build()
-        job_builder = JobBuilder(**job_details_args, job_spec=job_spec)
-        job_config = job_builder.build()
-
-        if save_template:
+        job_config_obj = self.processed_args
+        
+        if job_config_obj.save_template:
             self.template_manager.save_job_template(
-                job_config=job_config,
-                job_name=job_details_args['job_name'],
+                job_config=job_config_obj.to_dict(),
+                job_name=job_config_obj.metadata.name,
                 job_type='job',
-                verbose=self.processed_args['verbose']
+                verbose=job_config_obj.verbose
             )
             return
 
         # Submit the job
         submit_job(
-            job_config=job_config,
-            dry_run=self.processed_args['dry_run'],
-            verbose=self.processed_args['verbose']
+            job_config=job_config_obj.to_dict(),
+            dry_run=job_config_obj.dry_run,
+            verbose=job_config_obj.verbose
         )
 
         # Return if dry run
-        if self.processed_args['dry_run']:
+        if job_config_obj.dry_run:
             return
 
         # TODO: If follow is True, implement logic to follow job logs, status and events in addition to below pod log streaming.
-        if follow:
+        if job_config_obj.follow:
             # Wait for job pods to be running
             print("Waiting for job pods to be ready...")
             pod_name = wait_for_job_pods_ready(
-                            job_name=job_details_args['job_name'],
-                            namespace=job_details_args['namespace'],
+                            job_name=job_config_obj.metadata.name,
+                            namespace=job_config_obj.metadata.namespace,
                             timeout=300
                         )
 
@@ -204,48 +191,35 @@ class Jet():
             # Stream logs from all pods
             get_logs(
                 pod_name=pod_name,
-                namespace=job_details_args['namespace'],
+                namespace=job_config_obj.metadata.namespace,
                 follow=True,
                 timeout=None
             )
 
     def launch_jupyter(self):
+        job_config_obj = self.processed_args
         
-        job_details_args = self.processed_args['job_details_args']
-        job_spec_args = self.processed_args['job_spec_args']
-        pod_spec_args = self.processed_args['pod_spec_args']
-        container_spec_args = self.processed_args['container_spec_args']
-        pod_port = [item for item in self.processed_args['ports'] if item['name'] == 'jupyter'][0]['container_port']
-        host_port = [item for item in self.processed_args['ports'] if item['name'] == 'jupyter'][0]['host_port']
-        follow = self.processed_args['follow']
-        save_template = self.processed_args['save_template']
+        pod_port = [item for item in job_config_obj.ports if item['name'] == 'jupyter'][0]['container_port']
+        host_port = [item for item in job_config_obj.ports if item['name'] == 'jupyter'][0]['host_port']
 
-        container_specs = ContainerBuilder(**container_spec_args).build()
-        pod_spec_args['containers'] = [container_specs]
-        pod_spec = PodSpecBuilder(**pod_spec_args).build()
-        job_spec_args['pod_spec'] = pod_spec
-        job_spec = JobSpecBuilder(**job_spec_args).build()
-        job_builder = JobBuilder(**job_details_args, job_spec=job_spec)
-        job_config = job_builder.build()
-
-        if save_template:
+        if job_config_obj.save_template:
             self.template_manager.save_job_template(
-                job_config=job_config,
-                job_name=job_details_args['job_name'],
+                job_config=job_config_obj.to_dict(),
+                job_name=job_config_obj.metadata.name,
                 job_type='jupyter',
-                verbose=self.processed_args['verbose']
+                verbose=job_config_obj.verbose
             )
             return
 
         # Submit the job
         submit_job(
-            job_config=job_config,
-            dry_run=self.processed_args['dry_run'],
-            verbose=self.processed_args['verbose']
+            job_config=job_config_obj.to_dict(),
+            dry_run=job_config_obj.dry_run,
+            verbose=job_config_obj.verbose
         )
 
         # Return if dry run
-        if self.processed_args['dry_run']:
+        if job_config_obj.dry_run:
             return
 
         # TODO: Watch for job and pod status. If any of them fail or deleted EXTERNALLY, stop port forwarding and exit gracefully.
@@ -258,14 +232,14 @@ class Jet():
             # Wait for Jupyter pod to be running
             print("Waiting for Jupyter pod to be ready...")
             jupyter_pod_name = wait_for_job_pods_ready(
-                                job_name=job_details_args['job_name'],
-                                namespace=job_details_args['namespace'],
+                                job_name=job_config_obj.metadata.name,
+                                namespace=job_config_obj.metadata.namespace,
                                 timeout=300
                             )
             print(f"Jupyter pod \x1b[1;38;2;30;144;255m{jupyter_pod_name}\x1b[0m is running\n")
 
             # Forward port from host to pod
-            pod = init_pod_object(resource=jupyter_pod_name, namespace=job_details_args['namespace'])
+            pod = init_pod_object(resource=jupyter_pod_name, namespace=job_config_obj.metadata.namespace)
             port_forwarder = pod.portforward(remote_port=pod_port, local_port=host_port)
             port_forwarder.start()
             print(f"Forwarding from local port {host_port} to pod {jupyter_pod_name} port {pod_port}\n")
@@ -273,9 +247,9 @@ class Jet():
             # Stream Jupyter logs
             get_logs(
                 pod_name=jupyter_pod_name,
-                namespace=job_details_args['namespace'],
+                namespace=job_config_obj.metadata.namespace,
                 follow=True,
-                timeout=None if follow else 15 # No timeout for follow, 15 seconds for non-follow to capture token
+                timeout=None if job_config_obj.follow else 15 # No timeout for follow, 15 seconds for non-follow to capture token
             )
 
             # Keep the port forwarding running
@@ -299,9 +273,9 @@ class Jet():
                 port_forwarder.stop()
             try:
                 delete_resource(
-                    name=job_details_args['job_name'],
+                    name=job_config_obj.metadata.name,
                     resource_type='job',
-                    namespace=job_details_args['namespace']
+                    namespace=job_config_obj.metadata.namespace
                 )
             except Exception as delete_exception:
 
@@ -320,49 +294,35 @@ class Jet():
 
             try:
                 delete_resource(
-                    name=job_details_args['job_name'],
+                    name=job_config_obj.metadata.name,
                     resource_type='job',
-                    namespace=job_details_args['namespace']
+                    namespace=job_config_obj.metadata.namespace
                 )
             except Exception as delete_exception:
                 print(f"Error deleting Jupyter job/pod: {delete_exception}")
             raise e
 
     def launch_debug(self):
-        
-        job_details_args = self.processed_args['job_details_args']
-        job_spec_args = self.processed_args['job_spec_args']
-        pod_spec_args = self.processed_args['pod_spec_args']
-        container_spec_args = self.processed_args['container_spec_args']
-        follow = self.processed_args['follow']
-        save_template = self.processed_args['save_template']
+        job_config_obj = self.processed_args
 
-        container_specs = ContainerBuilder(**container_spec_args).build()
-        pod_spec_args['containers'] = [container_specs]
-        pod_spec = PodSpecBuilder(**pod_spec_args).build()
-        job_spec_args['pod_spec'] = pod_spec
-        job_spec = JobSpecBuilder(**job_spec_args).build()
-        job_builder = JobBuilder(**job_details_args, job_spec=job_spec)
-        job_config = job_builder.build()
-
-        if save_template:
+        if job_config_obj.save_template:
             self.template_manager.save_job_template(
-                job_config=job_config,
-                job_name=job_details_args['job_name'],
+                job_config=job_config_obj.to_dict(),
+                job_name=job_config_obj.metadata.name,
                 job_type='debug',
-                verbose=self.processed_args['verbose']
+                verbose=job_config_obj.verbose
             )
             return
 
         # Submit the job
         submit_job(
-            job_config=job_config,
-            dry_run=self.processed_args['dry_run'],
-            verbose=self.processed_args['verbose']
+            job_config=job_config_obj.to_dict(),
+            dry_run=job_config_obj.dry_run,
+            verbose=job_config_obj.verbose
         )
 
         # Return if dry run
-        if self.processed_args['dry_run']:
+        if job_config_obj.dry_run:
             return
 
         # TODO: If follow is True, implement logic to follow job logs, status and events.
@@ -372,26 +332,27 @@ class Jet():
             # Wait for debug pod to be running
             print("Waiting for debug pod to be ready...")
             debug_pod_name = wait_for_job_pods_ready(
-                                job_name=job_details_args['job_name'],
-                                namespace=job_details_args['namespace'],
+                                job_name=job_config_obj.metadata.name,
+                                namespace=job_config_obj.metadata.namespace,
                                 timeout=300
                             )
             print(f"Debug pod \x1b[1;38;2;30;144;255m{debug_pod_name}\x1b[0m is running\n")
 
             # Exec into the debug pod with the specified shell
             print(f"Connecting to debug pod \x1b[1;38;2;30;144;255m{debug_pod_name}\x1b[0m. Use \x1b[1;33mexit\x1b[0m to terminate the session and delete the debug job.\n")
+            print(job_config_obj.spec.template_spec.containers[0].command)
             exec_into_pod(
                 pod_name=debug_pod_name,
-                namespace=job_details_args['namespace'],
-                shell=container_spec_args['command'].split(' ')[0] # Extract shell from command
+                namespace=job_config_obj.metadata.namespace,
+                shell=job_config_obj.spec.template_spec.containers[0].command.split(' ')[0] # Extract shell from command
             )
 
             # After exiting the exec session, delete the debug job/pod
             print("\nDebug session ended. Deleting debug job/pod...")
             delete_resource(
-                name=job_details_args['job_name'],
+                name=job_config_obj.metadata.name,
                 resource_type='job',
-                namespace=job_details_args['namespace']
+                namespace=job_config_obj.metadata.namespace
             )
 
         # Catch any exception during debug session creation or keyboard interrupt
@@ -405,9 +366,9 @@ class Jet():
             signal.signal(signal.SIGINT, signal.SIG_IGN)
 
             delete_resource(
-                name=job_details_args['job_name'],
+                name=job_config_obj.metadata.name,
                 resource_type='job',
-                namespace=job_details_args['namespace']
+                namespace=job_config_obj.metadata.namespace
             )
 
         except Exception as e:
@@ -418,9 +379,9 @@ class Jet():
             signal.signal(signal.SIGINT, signal.SIG_IGN)
 
             delete_resource(
-                name=job_details_args['job_name'],
+                name=job_config_obj.metadata.name,
                 resource_type='job',
-                namespace=job_details_args['namespace']
+                namespace=job_config_obj.metadata.namespace
             )
 
     def list_templates(self):
