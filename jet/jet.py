@@ -98,13 +98,35 @@ def parse_arguments():
     debug_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
     debug_parser.add_argument('--save-template', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
 
-    # List templates command
-    list_templates_parser = subparsers.add_parser('list-templates', help='List available job templates')
+    # List command
+    list_parser = subparsers.add_parser('list', help='List resources (templates, jobs, or pods)')
+    list_subparsers = list_parser.add_subparsers(dest='list_type')
+
+    # List templates
+    list_templates_parser = list_subparsers.add_parser('templates', aliases=['template', 'te', 't'], help='List available job templates')
     list_templates_parser.add_argument('--type', choices=['job', 'jupyter', 'debug'], help='Type of templates to list')
     list_templates_parser.add_argument('--name', help='Filter templates by name (substring match)')
     list_templates_parser.add_argument('--regex', help='Filter templates by regex pattern')
     list_templates_parser.add_argument('--sort-by', choices=['time', 'name'], default='name', help='Sort templates by time or name')
     list_templates_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed template information')
+
+    # List jobs
+    list_jobs_parser = list_subparsers.add_parser('jobs', aliases=['job', 'jo', 'j'], help='List Kubernetes jobs')
+    list_jobs_parser.add_argument('--type', choices=['job', 'jupyter', 'debug'], help='Type of jobs to list')
+    list_jobs_parser.add_argument('--name', help='Filter jobs by name (substring match)')
+    list_jobs_parser.add_argument('--regex', help='Filter jobs by regex pattern')
+    list_jobs_parser.add_argument('--sort-by', choices=['time', 'name'], default='name', help='Sort jobs by time or name')
+    list_jobs_parser.add_argument('--namespace', help='Kubernetes namespace')
+    list_jobs_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed job information')
+
+    # List pods
+    list_pods_parser = list_subparsers.add_parser('pods', aliases=['pod', 'po', 'p'], help='List Kubernetes pods')
+    list_pods_parser.add_argument('--type', choices=['job', 'jupyter', 'debug'], help='Type of pods to list')
+    list_pods_parser.add_argument('--name', help='Filter pods by name (substring match)')
+    list_pods_parser.add_argument('--regex', help='Filter pods by regex pattern')
+    list_pods_parser.add_argument('--sort-by', choices=['time', 'name'], default='name', help='Sort pods by time or name')
+    list_pods_parser.add_argument('--namespace', help='Kubernetes namespace')
+    list_pods_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed pod information')
 
     # Get command
     get_parser = subparsers.add_parser('get', help='Get job or pod status')
@@ -394,6 +416,14 @@ class Jet():
         )
 
     # TODO: Yet to implement
+    def list_jobs(self):
+        pass
+
+    # TODO: Yet to implement
+    def list_pods(self):
+        pass
+
+    # TODO: Yet to implement
     def get_status(self):
         pass
 
@@ -413,20 +443,25 @@ class Jet():
     def delete(self):
         pass
 
-def run(args, command, launch_type=None):
+def run(args, command, subcommand=None):
     # Jet instance
     jet = Jet(processed_args=args)
 
     # Execute commands
     if command == 'launch':
-        if launch_type == 'job':
+        if subcommand == 'job':
             jet.launch_job()
-        elif launch_type == 'jupyter':
+        elif subcommand == 'jupyter':
             jet.launch_jupyter()
-        elif launch_type == 'debug':
+        elif subcommand == 'debug':
             jet.launch_debug()
-    elif command == 'list-templates':
-        jet.list_templates()
+    elif command == 'list':
+        if subcommand in ['templates', 'template', 'te', 't']:
+            jet.list_templates()
+        elif subcommand in ['jobs', 'job', 'jo', 'j']:
+            jet.list_jobs()
+        elif subcommand in ['pods', 'pod', 'po', 'p']:
+            jet.list_pods()
     elif command == 'get':
         jet.get_status()
     elif command == 'logs':
@@ -448,8 +483,13 @@ def cli():
     processed_args = processor.process()
 
     # Run Jet commands
-    run(processed_args, args.jet_command,
-        args.launch_type if hasattr(args, 'launch_type') else None)
+    subcommand = None
+    if hasattr(args, 'launch_type'):
+        subcommand = args.launch_type
+    elif hasattr(args, 'list_type'):
+        subcommand = args.list_type
+    
+    run(processed_args, args.jet_command, subcommand)
 
 if __name__ == "__main__":
     cli()
