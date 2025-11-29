@@ -33,8 +33,13 @@ class ProcessArguments:
                 return self._process_launch_jupyter()
             elif self.args.launch_type == 'debug':
                 return self._process_launch_debug()
-        elif self.args.jet_command == 'list-templates':
-            return self._process_list_templates()
+        elif self.args.jet_command == 'list':
+            if self.args.list_type in ['templates', 'template', 'te', 't']:
+                return self._process_list_templates()
+            elif self.args.list_type in ['jobs', 'job', 'jo', 'j']:
+                return self._process_list_jobs()
+            elif self.args.list_type in ['pods', 'pod', 'po', 'p']:
+                return self._process_list_pods()
         elif self.args.jet_command == 'get':
             return self._process_get()
         elif self.args.jet_command == 'logs':
@@ -60,12 +65,13 @@ class ProcessArguments:
         jupyter_volumes = self._parse_volume_arg([[self.args.notebooks_dir]], identifier="jupyter-notebooks")
 
         # Parse jupyter port argument
-        if ':' in self.args.port:
-            host_port = int(self.args.port.split(':')[0])
-            jupyter_container_port = int(self.args.port.split(':')[1])
+        port = self.args.port or DEFAULT_JUPYTER_PORT
+        if ':' in port:
+            host_port = int(port.split(':')[0])
+            jupyter_container_port = int(port.split(':')[1])
         else:
-            host_port = int(self.args.port)
-            jupyter_container_port = int(self.args.port)
+            host_port = int(port)
+            jupyter_container_port = int(port)
 
         jupyter_ports = [{
             'name': 'jupyter',
@@ -129,6 +135,38 @@ class ProcessArguments:
             'regex': regex,
             'sort_by': sort_by
         }
+    
+    def _process_list_jobs(self):
+        job_type = self.args.type if self.args.type else None
+        name_match_substr = self.args.name if self.args.name else None
+        regex = self.args.regex if self.args.regex else None
+        sort_by = self.args.sort_by
+        namespace = self.args.namespace if self.args.namespace else None
+        verbose = self.args.verbose if self.args.verbose else False
+        return {
+            'job_type': job_type,
+            'verbose': verbose,
+            'name_match_substr': name_match_substr,
+            'regex': regex,
+            'sort_by': sort_by,
+            'namespace': namespace
+        }
+
+    def _process_list_pods(self):
+        job_type = self.args.type if self.args.type else None
+        name_match_substr = self.args.name if self.args.name else None
+        regex = self.args.regex if self.args.regex else None
+        sort_by = self.args.sort_by
+        namespace = self.args.namespace if self.args.namespace else None
+        verbose = self.args.verbose if self.args.verbose else False
+        return {
+            'job_type': job_type,
+            'verbose': verbose,
+            'name_match_substr': name_match_substr,
+            'regex': regex,
+            'sort_by': sort_by,
+            'namespace': namespace
+        }
 
     # TODO: Yet to implement
     def _process_get(self):
@@ -150,7 +188,7 @@ class ProcessArguments:
     def _process_delete(self):
         pass
 
-    def _add_volume_with_dedup(self, pod_spec, volume_dict, existing_by_name, existing_by_mount, dedupe_by_name=False):
+    def _add_volume_with_dedupe(self, pod_spec, volume_dict, existing_by_name, existing_by_mount, dedupe_by_name=False):
         """
         Add a volume to pod_spec while deduplicating by mount_path and optionally by name.
         
@@ -278,16 +316,16 @@ class ProcessArguments:
             cli_volumes = self._parse_volume_arg(self.args.volume)
             for v in cli_volumes:
                 # CLI volumes: only dedupe by mount_path, not by name
-                self._add_volume_with_dedup(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=False)
+                self._add_volume_with_dedupe(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=False)
 
         if self.args.shm_size:
             shm_vol = self._parse_shm_size_arg(self.args.shm_size)
             # shm-volume: dedupe by both name and mount_path (auto-generated name)
-            self._add_volume_with_dedup(pod_spec, shm_vol, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
+            self._add_volume_with_dedupe(pod_spec, shm_vol, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
 
         # Additional Volumes - Deduplicate by name and mount_path (auto-generated names like jupyter-notebooks-0)
         for v in additional_volumes:
-            self._add_volume_with_dedup(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
+            self._add_volume_with_dedupe(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
 
         # Security Context
         # TODO: Make this optional with a flag?
@@ -317,7 +355,7 @@ class ProcessArguments:
         if command_override:
             container.args = [command_override]
         elif hasattr(self.args, 'command') and self.args.command:
-            container.args = self.args.command.split()
+            container.args = [self.args.command]
         
         # Working Dir
         if working_dir_override:
@@ -363,7 +401,7 @@ class ProcessArguments:
         if hasattr(self.args, 'pyenv') and self.args.pyenv:
             pyenv_volumes, pyenv_env_vars = self._parse_pyenv_arg(self.args.pyenv)
             for v in pyenv_volumes:
-                new_vol = self._add_volume_with_dedup(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
+                new_vol = self._add_volume_with_dedupe(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
                 container.volume_mounts[new_vol.name] = new_vol.mount_path
             container.env.update(pyenv_env_vars)
 
@@ -372,7 +410,7 @@ class ProcessArguments:
             home_path = os.path.expanduser("~")
             home_volumes = self._parse_volume_arg([[home_path]], identifier="home")
             for v in home_volumes:
-                new_vol = self._add_volume_with_dedup(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
+                new_vol = self._add_volume_with_dedupe(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
                 container.volume_mounts[new_vol.name] = new_vol.mount_path
             container.env['HOME'] = home_path
             if not container.working_dir:
