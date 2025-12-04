@@ -12,6 +12,7 @@ import re
 from collections import defaultdict
 import shutil
 import textwrap
+from defaults import JET_HOME
 
 
 def get_current_namespace():
@@ -558,7 +559,7 @@ class TemplateInfo:
 class TemplateManager():
     def __init__(self, templates_dir=None):
         if templates_dir is None:
-            self.templates_dir = Path.home() / ".jet" / "templates"
+            self.templates_dir = JET_HOME / "templates"
         else:
             self.templates_dir = Path(templates_dir)
         self.templates_dir.mkdir(parents=True, exist_ok=True)
@@ -582,7 +583,7 @@ class TemplateManager():
         """
         Resolve either:
         - a path to an existing YAML file (absolute or relative), or
-        - a template name (job_name) which will be searched in ~/.jet/templates/
+        - a template name (job_name) which will be searched in ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/
             matching: {job_name}_{job_type}_template_*.yaml or *.yml
         Returns the absolute path to the template file as a string.
         Raises ValueError if nothing matches.
@@ -592,7 +593,7 @@ class TemplateManager():
         if candidate.is_file():
             return str(candidate)
 
-        # Fallback: search ~/.jet/templates/ for matching template files
+        # Fallback: search ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/ for matching template files
         if not self.templates_dir.is_dir():
             raise ValueError(f"Template directory not found: {self.templates_dir}. Please ensure it exists.")
 
@@ -607,7 +608,7 @@ class TemplateManager():
         if not matches:
             raise ValueError(
                 f"No templates named {job_name_stem} found in {self.templates_dir}. "
-                "Provide a valid template name saved in ~/.jet/templates/ or a full path to a job yaml file."
+                "Provide a valid template name saved in ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/ or a full path to a job yaml file."
             )
 
         latest = max(matches, key=lambda p: p.stat().st_mtime)

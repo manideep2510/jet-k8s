@@ -5,25 +5,13 @@ from pathlib import Path
 import yaml
 from .utils import TemplateManager
 from .job_config import JobConfig, JobMetadata, JobSpec, PodSpec, ContainerSpec, VolumeSpec, ResourceSpec
-
-DEFAULT_CPU = '1:1'
-DEFAULT_MEMORY = '4Gi:4Gi'
-DEFAULT_SCHEDULER = 'kai-scheduler'
-DEFAULT_PRIORITY = 'train'
-DEFAULT_RESTART_POLICY = 'Never'
-DEFAULT_JUPYTER_PORT = '8888'
-DEFAULT_BACKOFF_LIMIT = None  # 6 retries by default
-DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED = 1296000  # 15 days
-DEFAULT_JUPYTER_TTL_SECONDS_AFTER_FINISHED = 1296000  # 15 days
-DEFAULT_DEBUG_TTL_SECONDS_AFTER_FINISHED = 21600  # 6 hours
-DEFAULT_DEBUG_JOB_DURATION_SECONDS = 21600  # 6 hours
-JET_HOME = os.path.join(os.path.expanduser("~"), ".jet")
+from defaults import *
 
 
 class ProcessArguments:
     def __init__(self, args):
         self.args = args
-        self.template_manager = TemplateManager()
+        self.template_manager = TemplateManager(templates_dir=JET_HOME / "templates")
         
     def process(self):
         if self.args.jet_command == 'launch':
