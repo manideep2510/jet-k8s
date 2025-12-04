@@ -54,6 +54,7 @@ class ContainerSpec:
     working_dir: Optional[str] = None
     volume_mounts: Dict[str, str] = field(default_factory=dict)
     resources: ResourceSpec = field(default_factory=ResourceSpec)
+    security_context: Dict[str, Any] = field(default_factory=dict)
     is_init_container: bool = False
 
     def validate(self):
@@ -198,6 +199,7 @@ class JobConfig:
                 env=env,
                 working_dir=cont.get('workingDir'),
                 volume_mounts=vol_mounts,
+                security_context=cont.get('securityContext', {}),
                 resources=resources
             ))
 
@@ -244,6 +246,8 @@ class JobConfig:
                 c_dict['env'] = [{'name': k, 'value': str(v)} for k, v in cont.env.items()]
             if cont.volume_mounts:
                 c_dict['volumeMounts'] = [{'name': k, 'mountPath': v} for k, v in cont.volume_mounts.items()]
+            if cont.security_context:
+                c_dict['securityContext'] = cont.security_context
             
             # Resources
             res_dict = {}
