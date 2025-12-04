@@ -14,6 +14,25 @@ import shutil
 import textwrap
 
 
+def get_current_namespace():
+    """
+    Get the namespace from the current kubectl context.
+    Returns the context's namespace, or 'default' if none is set.
+    """
+    try:
+        result = subprocess.run(
+            ["kubectl", "config", "view", "--minify", "-o", "jsonpath={..namespace}"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        namespace = result.stdout.strip()
+        # If no namespace is set in context, kubectl returns empty string
+        return namespace if namespace else "default"
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+        return "default"
+
+
 def print_job_yaml(job_yaml, dry_run=False, verbose=False):
     """
     Print the YAML representation of a Kubernetes job configuration.
@@ -81,7 +100,7 @@ def submit_job(job_config, dry_run=False, verbose=False):
     except Exception as e:
         raise Exception(f"Error submitting job with subprocess: {e}")
 
-def delete_resource(name, resource_type, namespace='default'):
+def delete_resource(name, resource_type, namespace='default', kubectl_args=None):
     """
     Delete a Kubernetes job using kubectl.
 
@@ -89,13 +108,16 @@ def delete_resource(name, resource_type, namespace='default'):
         name (str): Name of the resource.
         resource_type (str): Type of the resource (e.g., 'job', 'pod').
         namespace (str): Kubernetes namespace.
+        kubectl_args (list): Additional arguments to pass to kubectl delete.
     """
     namespace = namespace if namespace else 'default'
+    kubectl_args = kubectl_args if kubectl_args else []
 
     try:
         logging.info(f"Deleting {resource_type} {name} in namespace {namespace}...")
+        cmd = ['kubectl', 'delete', resource_type, name, '-n', namespace] + kubectl_args
         subprocess.run(
-            ['kubectl', 'delete', resource_type, name, '-n', namespace],
+            cmd,
             check=True,
             capture_output=True,
             text=True
@@ -104,7 +126,9 @@ def delete_resource(name, resource_type, namespace='default'):
         print(f"{resource_type} \x1b[1;32m{name}\x1b[0m \x1b[31mdeleted\x1b[0m from \x1b[38;5;245m{namespace}\x1b[0m namespace")
 
     except subprocess.CalledProcessError as e:
-        print(f"Error deleting {resource_type} {name}: {e}")
+        # e.stderr contains the actual error message from kubectl
+        error_msg = e.stderr.strip() if e.stderr else str(e)
+        print(f"Error deleting {resource_type}/{name}: {error_msg}")
 
 def forward_port_background(name, resource_type, host_port, pod_port, namespace='default'):
     """
@@ -269,7 +293,8 @@ def get_job_pod_names(job_name, namespace='default', field_selector=None):
         return [pod['metadata']['name'] for pod in active_pods]
 
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error getting pods for job {job_name}: {e}")
+        error_msg = e.stderr.strip() if e.stderr else str(e)
+        logging.error(f"Error getting pods for job {job_name}: {error_msg}")
         return []
     except (json.JSONDecodeError, KeyError) as e:
         logging.error(f"Error parsing pod data for job {job_name}: {e}")
@@ -380,7 +405,83 @@ def wait_for_pod_ready(pod_name, namespace='default', timeout=300):
         print(f"Error getting pod state: {e}")
         return None
 
-def exec_into_pod(pod_name, namespace='default', shell='/bin/sh'):
+def get_shell_from_container_spec(pod_name, namespace='default', container_name=None):
+    """Check if container spec specifies a shell"""
+    
+    namespace = namespace if namespace else 'default'
+    
+    try:
+        cmd = ["kubectl", "get", "pod", pod_name, "-n", namespace, "-o", "json"]
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True,
+            timeout=10,
+            check=True
+        )
+        pod_spec = json.loads(result.stdout)
+        
+        containers = pod_spec.get("spec", {}).get("containers", [])
+        if not containers:
+            return None
+            
+        if container_name:
+            container = next((c for c in containers if c["name"] == container_name), None)
+            if not container:
+                container = containers[0]
+        else:
+            container = containers[0]
+        
+        # Check command for shell specification
+        command = container.get("command", [])
+        if command:
+            for cmd_part in command:
+                if "bash" in str(cmd_part):
+                    return "/bin/bash"
+                elif "zsh" in str(cmd_part):
+                    return "/bin/zsh"
+                elif str(cmd_part) in ["/bin/sh", "sh"]:
+                    return "/bin/sh"
+        
+        return None
+        
+    except Exception:
+        return None
+
+
+def detect_shell(pod_name, namespace='default', container_name=None):
+    """Detect best available shell"""
+
+    namespace = namespace if namespace else 'default'
+    
+    # First, check if spec tells us
+    spec_shell = get_shell_from_container_spec(pod_name, namespace, container_name)
+    if spec_shell:
+        return spec_shell
+    
+    # Otherwise, probe the container
+    base_cmd = ["kubectl", "exec", pod_name, "-n", namespace]
+    if container_name:
+        base_cmd += ["-c", container_name]
+    
+    shells = ["/bin/bash", "/bin/zsh", "/usr/bin/fish", "/bin/sh"]
+    
+    for shell in shells:
+        try:
+            result = subprocess.run(
+                base_cmd + ["--", "test", "-f", shell],
+                capture_output=True,
+                timeout=2
+            )
+            print(f"Probing for shell {shell}, result code: {result}")
+            if result.returncode == 0:
+                return shell
+        except Exception:
+            continue
+    
+    return "/bin/sh"
+
+def exec_into_pod(pod_name, namespace='default', shell='/bin/sh', container_name=None):
     """
     Exec into a Kubernetes pod using kubectl.
 
@@ -388,27 +489,44 @@ def exec_into_pod(pod_name, namespace='default', shell='/bin/sh'):
         pod_name (str): Name of the pod.
         namespace (str): Kubernetes namespace.
         shell (str): Shell to use inside the pod.
+        container_name (str, optional): Container name for multi-container pods.
     """
 
     namespace = namespace if namespace else 'default'
-
+    
     try:
         logging.info(f"Executing into pod {pod_name} in namespace {namespace} with shell {shell}...")
-        result = subprocess.run(
-            ['kubectl', 'exec', '-it', pod_name, '-n', namespace, '--', shell],
-            check=False
-        )
+        
+        cmd = ['kubectl', 'exec', '-it', pod_name, '-n', namespace]
+        if container_name:
+            cmd += ['-c', container_name]
+        cmd += ['--', shell]
+        
+        result = subprocess.run(cmd, check=False)
 
-        # Exit code 130 = user pressed Ctrl+C in the shell (normal). Exit normally.
+        # Exit code 130 = user pressed Ctrl+C in the shell (normal)
         if result.returncode == 130:
-            return  
+            return
+        
+        # Exit code 137 = pod terminated/killed
         if result.returncode == 137:
             raise Exception(f"Pod {pod_name} is terminated (exit code 137). Cannot exec into it.")
-        elif result.returncode != 0:
-            raise Exception(f"Error executing into pod {pod_name} with exit code {result.returncode}. stderr: {result.stderr}")
         
+        # Exit code 126 = shell/command not executable
+        if result.returncode == 126:
+            raise Exception(f"Shell {shell} is not executable in pod {pod_name}.")
+        
+        # Exit code 127 = shell/command not found
+        if result.returncode == 127:
+            raise Exception(f"Shell {shell} not found in pod {pod_name}.")
+        
+        elif result.returncode != 0:
+            raise Exception(f"kubectl exec failed with exit code {result.returncode}")
+        
+    except KeyboardInterrupt:
+        # User hit Ctrl+C while exec was starting (before entering shell)
+        return
     except Exception as e:
-        # print(f"Error executing into pod {pod_name}: {e}")
         raise Exception(e)
 
 class TemplateInfo:

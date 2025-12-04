@@ -40,6 +40,8 @@ class ProcessArguments:
                 return self._process_list_jobs()
             elif self.args.list_type in ['pods', 'pod', 'po', 'p']:
                 return self._process_list_pods()
+            else:
+                return self._process_list_jobs()  # Default to listing jobs
         elif self.args.jet_command == 'get':
             return self._process_get()
         elif self.args.jet_command == 'logs':
@@ -80,7 +82,10 @@ class ProcessArguments:
         }]
 
         # Jupyter command
-        jupyter_command = f"jupyter notebook --port={jupyter_container_port} --no-browser --ip=127.0.0.1"
+        if self.args.token:
+            jupyter_command = f"jupyter notebook --port={jupyter_container_port} --no-browser --ip=127.0.0.1 --NotebookApp.token={self.args.token}"
+        else:
+            jupyter_command = f"jupyter notebook --port={jupyter_container_port} --no-browser --ip=127.0.0.1"
 
         # Set HOME, so that jupyter uses correct home directory inside container to find .local, .jupyter, .ipython
         # Add respective volumes and mounts
@@ -137,34 +142,14 @@ class ProcessArguments:
         }
     
     def _process_list_jobs(self):
-        job_type = self.args.type if self.args.type else None
-        name_match_substr = self.args.name if self.args.name else None
-        regex = self.args.regex if self.args.regex else None
-        sort_by = self.args.sort_by
-        namespace = self.args.namespace if self.args.namespace else None
-        verbose = self.args.verbose if self.args.verbose else False
+        namespace = self.args.namespace if hasattr(self.args, 'namespace') and self.args.namespace else None
         return {
-            'job_type': job_type,
-            'verbose': verbose,
-            'name_match_substr': name_match_substr,
-            'regex': regex,
-            'sort_by': sort_by,
             'namespace': namespace
         }
 
     def _process_list_pods(self):
-        job_type = self.args.type if self.args.type else None
-        name_match_substr = self.args.name if self.args.name else None
-        regex = self.args.regex if self.args.regex else None
-        sort_by = self.args.sort_by
-        namespace = self.args.namespace if self.args.namespace else None
-        verbose = self.args.verbose if self.args.verbose else False
+        namespace = self.args.namespace if hasattr(self.args, 'namespace') and self.args.namespace else None
         return {
-            'job_type': job_type,
-            'verbose': verbose,
-            'name_match_substr': name_match_substr,
-            'regex': regex,
-            'sort_by': sort_by,
             'namespace': namespace
         }
 
@@ -172,21 +157,152 @@ class ProcessArguments:
     def _process_get(self):
         pass
 
-    # TODO: Yet to implement
     def _process_logs(self):
-        pass
+        """Process logs command arguments.
+        
+        Supports formats:
+        - jet logs <job_name>                       # defaults to job
+        - jet logs pod <pod_name>                   # explicitly get pod logs
+        - jet logs job <job_name>                   # explicitly get job logs
+        - jet logs <job_name> -f                    # with kubectl args
+        - jet logs pod <pod_name> --tail=100        # pod with kubectl args
+        """
+        args_list = self.args.logs_args if hasattr(self.args, 'logs_args') else []
+        namespace = self.args.namespace if hasattr(self.args, 'namespace') and self.args.namespace else None
+        
+        kubectl_args = []
+        resource_type = 'job'  # Default to job
+        name = None
 
-    # TODO: Yet to implement
+        if len(args_list) == 0:
+            resource_type = None
+            name = None
+            kubectl_args = []
+        elif len(args_list) == 1:
+            # jet logs <name> -> default to job
+            resource_type = 'job'
+            name = args_list[0]
+            kubectl_args = []
+        else:
+            # jet logs <resource_type> <name> [kubectl_args...]
+            # or jet logs <name> [kubectl_args...]
+            first_arg = args_list[0].lower()
+            if first_arg in ['job', 'pod', 'jobs', 'pods', 'jo', 'po', 'j', 'p']:
+                # Normalize resource type
+                if first_arg in ['pod', 'pods', 'po', 'p']:
+                    resource_type = 'pod'
+                else:
+                    resource_type = 'job'
+                # Remaining args after resource_type and name are kubectl args
+                kubectl_args = args_list[2:] if len(args_list) > 2 else []
+                name = args_list[1]
+            else:
+                # First arg is not a resource type, treat as job name
+                # Remaining args are kubectl args
+                kubectl_args = args_list[1:] if len(args_list) > 1 else []
+                resource_type = 'job'
+                name = args_list[0]
+            
+        return {
+            'resource_type': resource_type,
+            'name': name,
+            'namespace': namespace,
+            'kubectl_args': kubectl_args
+        }
+
     def _process_describe(self):
-        pass
+        """Process describe command arguments."""
+        # Pass through all arguments to kubectl describe
+        kubectl_args = self.args.describe_args if hasattr(self.args, 'describe_args') else []
+        return {
+            'kubectl_args': kubectl_args
+        }
 
-    # TODO: Yet to implement
     def _process_connect(self):
-        pass
+        """Process connect command arguments.
+        
+        Supports formats:
+        - jet connect <job_name>                     # defaults to job
+        - jet connect pod <pod_name>                 # explicitly connect to pod
+        - jet connect job <job_name>                 # explicitly connect to job
+        """
+        connect_args = self.args.connect_args if hasattr(self.args, 'connect_args') else []
+        namespace = self.args.namespace if hasattr(self.args, 'namespace') and self.args.namespace else None
+        
+        resource_type = 'job'  # Default to job
+        name = None
+        
+        if len(connect_args) >= 1:
+            # Check if first argument is a resource type
+            if connect_args[0] in ['job', 'pod', 'jobs', 'pods', 'jo', 'po', 'j', 'p']:
+                if connect_args[0] in ['pod', 'pods', 'po', 'p']:
+                    resource_type = 'pod'
+                else:
+                    resource_type = 'job'
+                if len(connect_args) >= 2:
+                    name = connect_args[1]
+            else:
+                # First argument is the name, default to job
+                name = connect_args[0]
+        
+        return {
+            'resource_type': resource_type,
+            'name': name,
+            'namespace': namespace
+        }
 
-    # TODO: Yet to implement
     def _process_delete(self):
-        pass
+        """Process delete command arguments.
+        
+        Supports formats:
+        - jet delete <job_name>                      -> defaults to job
+        - jet delete pod <pod_name>                  -> explicitly delete pod
+        - jet delete job <job_name>                  -> explicitly delete job
+        - jet delete <job_name> --force --grace-period=0  -> with kubectl args
+        - jet delete pod <pod_name> --force          -> pod with kubectl args
+        """
+        args_list = self.args.delete_args if hasattr(self.args, 'delete_args') else []
+        namespace = self.args.namespace if hasattr(self.args, 'namespace') and self.args.namespace else None
+        
+        resource_type = None
+        name = None
+        kubectl_args = []
+
+        if len(args_list) == 0:
+            resource_type = None
+            name = None
+            kubectl_args = []
+        elif len(args_list) == 1:
+            # jet delete <name> -> default to job
+            resource_type = 'job'
+            name = args_list[0]
+            kubectl_args = []
+        else:
+            # jet delete <resource_type> <name> [kubectl_args...]
+            # or jet delete <name> [kubectl_args...]
+            first_arg = args_list[0].lower()
+            if first_arg in ['job', 'pod', 'jobs', 'pods', 'jo', 'po', 'j', 'p']:
+                # Normalize resource type
+                if first_arg in ['pod', 'pods', 'po', 'p']:
+                    resource_type = 'pod'
+                else:
+                    resource_type = 'job'
+                # Remaining args after resource_type and name are kubectl args
+                kubectl_args = args_list[2:] if len(args_list) > 2 else []
+                name = args_list[1]
+            else:
+                # First arg is not a resource type, treat as job name
+                # Remaining args are kubectl args
+                kubectl_args = args_list[1:] if len(args_list) > 1 else []
+                resource_type = 'job'
+                name = args_list[0]
+            
+        return {
+            'resource_type': resource_type,
+            'name': name,
+            'namespace': namespace,
+            'kubectl_args': kubectl_args
+        }
 
     def _add_volume_with_dedupe(self, pod_spec, volume_dict, existing_by_name, existing_by_mount, dedupe_by_name=False):
         """

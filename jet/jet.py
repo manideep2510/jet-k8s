@@ -2,10 +2,44 @@
 # and call relevant functions from other modules
 
 import argparse
-from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager
+import subprocess
+from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager, detect_shell, get_current_namespace
 from .process_args import ProcessArguments
+from .tui.app import run_tui
 import time
 import signal
+
+
+def get_kubectl_help(command):
+    """Fetch kubectl help output for a given command."""
+    try:
+        result = subprocess.run(
+            ['kubectl', command, '--help'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        return result.stdout
+    except Exception:
+        return None
+
+
+def make_kubectl_help_formatter(kubectl_command):
+    """Factory function to create a formatter class with a specific kubectl command."""
+    class KubectlHelpFormatter(argparse.RawDescriptionHelpFormatter):
+        """Custom formatter that appends kubectl help output."""
+        
+        def format_help(self):
+            help_text = super().format_help()
+            
+            kubectl_help = get_kubectl_help(kubectl_command)
+            if kubectl_help:
+                help_text += f"\nkubectl {kubectl_command} options:\n"
+                help_text += kubectl_help
+            
+            return help_text
+    
+    return KubectlHelpFormatter
 
 
 def parse_arguments():
@@ -14,13 +48,18 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Jet CLI Tool")
     subparsers = parser.add_subparsers(dest='jet_command')
 
+    # Store parser references for printing help when needed
+    parser._subparsers_map = {}
+
     # Launch command
     launch_parser = subparsers.add_parser('launch', help='Launch a job or jupyter server')
     launch_subparsers = launch_parser.add_subparsers(dest='launch_type')
+    parser._subparsers_map['launch'] = launch_parser
 
     # Launch Job
     job_parser = launch_subparsers.add_parser('job', help='Launch a job')
-    job_parser.add_argument('name', help='Name of the job or path to job file')
+    job_parser.add_argument('name', nargs='?', help='Name of the job or path to job file')
+    parser._subparsers_map['launch_job'] = job_parser
     job_parser.add_argument('--template', help='Name of the job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
     job_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     job_parser.add_argument('--image', help='Container image name')
@@ -44,11 +83,12 @@ def parse_arguments():
     job_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     job_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     job_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
-    job_parser.add_argument('--save-template', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
+    job_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
 
     # Launch Jupyter
     jupyter_parser = launch_subparsers.add_parser('jupyter', help='Launch a Jupyter Notebook server')
-    jupyter_parser.add_argument('name', help='Name of the Jupyter job')
+    jupyter_parser.add_argument('name', nargs='?', help='Name of the Jupyter job')
+    parser._subparsers_map['launch_jupyter'] = jupyter_parser
     jupyter_parser.add_argument('--template', help='Name of the Jupyter job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
     jupyter_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     jupyter_parser.add_argument('--image', help='Container image name')
@@ -70,11 +110,12 @@ def parse_arguments():
     jupyter_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     jupyter_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     jupyter_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
-    jupyter_parser.add_argument('--save-template', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
+    jupyter_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
 
     # Launch Debug session
     debug_parser = launch_subparsers.add_parser('debug', help='Launch a debug session')
-    debug_parser.add_argument('name', help='Name of the debug job')
+    debug_parser.add_argument('name', nargs='?', help='Name of the debug job')
+    parser._subparsers_map['launch_debug'] = debug_parser
     debug_parser.add_argument('--template', help='Name of the debug job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
     debug_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     debug_parser.add_argument('--image', help='Container image name')
@@ -96,10 +137,11 @@ def parse_arguments():
     debug_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     debug_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     debug_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
-    debug_parser.add_argument('--save-template', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
+    debug_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
 
     # List command
-    list_parser = subparsers.add_parser('list', help='List resources (templates, jobs, or pods)')
+    list_parser = subparsers.add_parser('list', help='List resources (templates, jobs, or pods). Defaults to listing jobs if no subcommand is provided.')
+    list_parser.add_argument('--namespace', '-n', help='Kubernetes namespace (used when listing jobs or pods)')
     list_subparsers = list_parser.add_subparsers(dest='list_type')
 
     # List templates
@@ -112,60 +154,52 @@ def parse_arguments():
 
     # List jobs
     list_jobs_parser = list_subparsers.add_parser('jobs', aliases=['job', 'jo', 'j'], help='List Kubernetes jobs')
-    list_jobs_parser.add_argument('--type', choices=['job', 'jupyter', 'debug'], help='Type of jobs to list')
-    list_jobs_parser.add_argument('--name', help='Filter jobs by name (substring match)')
-    list_jobs_parser.add_argument('--regex', help='Filter jobs by regex pattern')
-    list_jobs_parser.add_argument('--sort-by', choices=['time', 'name'], default='name', help='Sort jobs by time or name')
-    list_jobs_parser.add_argument('--namespace', help='Kubernetes namespace')
-    list_jobs_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed job information')
+    list_jobs_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
 
     # List pods
     list_pods_parser = list_subparsers.add_parser('pods', aliases=['pod', 'po', 'p'], help='List Kubernetes pods')
-    list_pods_parser.add_argument('--type', choices=['job', 'jupyter', 'debug'], help='Type of pods to list')
-    list_pods_parser.add_argument('--name', help='Filter pods by name (substring match)')
-    list_pods_parser.add_argument('--regex', help='Filter pods by regex pattern')
-    list_pods_parser.add_argument('--sort-by', choices=['time', 'name'], default='name', help='Sort pods by time or name')
-    list_pods_parser.add_argument('--namespace', help='Kubernetes namespace')
-    list_pods_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed pod information')
-
-    # Get command
-    get_parser = subparsers.add_parser('get', help='Get job or pod status')
-    get_parser.add_argument('name', help='Name of the job or pod')
-    get_parser.add_argument('--level', choices=['all', 'pods', 'jobs'], default='all', help='Level of status detail')
-    get_parser.add_argument('--namespace', help='Kubernetes namespace')
+    list_pods_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
 
     # Logs command
-    logs_parser = subparsers.add_parser('logs', help='Get logs from a pod')
-    logs_parser.add_argument('pod_name', help='Name of the pod')
-    logs_parser.add_argument('--job', help='Name of the job')
-    logs_parser.add_argument('--follow', '-f', action='store_true', help='Follow logs output')
-    logs_parser.add_argument('--namespace', help='Kubernetes namespace')
+    # jet logs <job_name> (defaults to job) or jet logs pod <pod_name>
+    logs_parser = subparsers.add_parser('logs', help='Get logs from a job or pod. If no resource type is provided (Examples: `jet logs my-job`), defaults to job.',
+                                        formatter_class=make_kubectl_help_formatter('logs'))
+    logs_parser.add_argument('logs_args', nargs='*', metavar='ARG', help='[resource_type] <name> [kubectl_options]. Examples: "my-job", "job my-job", "pod my-pod -f".')
+    logs_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
+    parser._subparsers_map['logs'] = logs_parser
 
     # Describe command
-    # jet describe job <name> or jet describe pod <name>
-    # TODO: Should it be jet describe <job_name> or <pod_name> with an additional argument to specify type? Or for job, its "jet describe <job_name>", but for pod, it is "jet describe pod <pod_name>"
-    describe_parser = subparsers.add_parser('describe', help='Describe a job or pod details')
-    describe_parser.add_argument('resource_type', choices=['job', 'pod'], help='Type of resource to describe. If job is provided, job details will be described along ability to choose underlying pods for details.')
-    describe_parser.add_argument('name', help='Name of the job or pod')
-    describe_parser.add_argument('--namespace', help='Kubernetes namespace')
+    # Just passing through to kubectl, Pass all args after 'describe' to kubectl
+    describe_parser = subparsers.add_parser('describe', help='Describe a job or pod',
+                                            formatter_class=make_kubectl_help_formatter('describe'))
+    describe_parser.add_argument('describe_args', nargs='*', help='<resource_type> <name> [options]. Examples: "job my-job", "pod my-pod -n namespace".')
+    parser._subparsers_map['describe'] = describe_parser
 
     # Connect command
-    # jet connect <job_name> or jet connect pod <pod_name>
-    # TODO: Should it be jet describe <job_name> or <pod_name> with an additional argument to specify type? Or for job, its "jet describe <job_name>", but for pod, it is "jet describe pod <pod_name>"
-    # TODO: Or for connect, should it just be jet connect <job_name>, as debug jobs have only one pod.
-    connect_parser = subparsers.add_parser('connect', help='Execute into a debug session')
-    connect_parser.add_argument('resource_type', choices=['job', 'pod'], help='Type of resource to connect to. If job is provided, user will be able to select underlying pod to connect to.')
-    connect_parser.add_argument('name', help='Name of the job or pod')
-    connect_parser.add_argument('--namespace', help='Kubernetes namespace')
+    # jet connect <job_name> (defaults to job) or jet connect pod <pod_name>
+    connect_parser = subparsers.add_parser('connect', help='Execute into a debug session. If no resource type is provided (Examples: `jet connect my-job`), defaults to job.')
+    connect_parser.add_argument('connect_args', nargs='*', metavar='ARG', help='[resource_type] <name>. Examples: "my-job", "job my-job", "pod my-pod".')
+    connect_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
+    parser._subparsers_map['connect'] = connect_parser
 
     # Delete command
-    # jet delete <job_name> or jet delete pod <pod_name>
-    delete_parser = subparsers.add_parser('delete', help='Delete a job')
-    delete_parser.add_argument('resource_type', choices=['job', 'pod'], help='Type of resource to delete. If job is provided, the job and all underlying pods will be deleted.')
-    delete_parser.add_argument('name', help='Name of the job or pod')
-    delete_parser.add_argument('--namespace', help='Kubernetes namespace')
+    # jet delete <job_name> (defaults to job) or jet delete pod <pod_name>
+    delete_parser = subparsers.add_parser('delete', help='Delete a job or pod. If no resource type is provided (Examples: `jet delete my-job`), defaults to job.',
+                                          formatter_class=make_kubectl_help_formatter('delete'))
+    delete_parser.add_argument('delete_args', nargs='*', metavar='ARG', help='[resource_type] <name> [kubectl_options]. Examples: "my-job", "job my-job", "pod my-pod --force".')
+    delete_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
+    parser._subparsers_map['delete'] = delete_parser
 
-    return parser.parse_args()
+    return parser, parser.parse_args()
+
+
+def print_help_and_exit(parser, subparser_key=None):
+    """Helper function to print help message and exit."""
+    if subparser_key and subparser_key in parser._subparsers_map:
+        parser._subparsers_map[subparser_key].print_help()
+    else:
+        parser.print_help()
+    return
 
 
 class Jet():
@@ -415,33 +449,86 @@ class Jet():
             sort_by=self.processed_args['sort_by']
         )
 
-    # TODO: Yet to implement
     def list_jobs(self):
-        pass
+        """Launch TUI to list and browse jobs."""
+        namespace = self.processed_args.get('namespace') or get_current_namespace()
+        result = run_tui(mode="jobs", namespace=namespace, mouse=False)
 
-    # TODO: Yet to implement
     def list_pods(self):
-        pass
+        """Launch TUI to list and browse pods."""
+        namespace = self.processed_args.get('namespace') or get_current_namespace()
+        result = run_tui(mode="pods", namespace=namespace, mouse=False, job_name=None)
 
-    # TODO: Yet to implement
-    def get_status(self):
-        pass
-
-    # TODO: Yet to implement
     def get_logs(self):
-        pass
+        """Get logs from a job or pod."""
+        namespace = self.processed_args.get('namespace') or get_current_namespace()
+        resource_type = self.processed_args.get('resource_type')
+        name = self.processed_args.get('name')
+        kubectl_args = self.processed_args.get('kubectl_args', [])
+        
+        # Build kubectl logs command
+        if resource_type == 'job':
+            cmd = ['kubectl', 'logs', f'job/{name}', '-n', namespace] + kubectl_args
+        else:
+            cmd = ['kubectl', 'logs', name, '-n', namespace] + kubectl_args
+        
+        try:
+            subprocess.run(cmd, check=False)
+        except Exception as e:
+            print(f"Error getting logs: {e}")
 
-    # TODO: Yet to implement
     def describe(self):
-        pass
+        """Use kubectl to describe a resource"""
+        kubectl_args = self.processed_args.get('kubectl_args', [])
+        
+        # Build kubectl describe command
+        cmd = ['kubectl', 'describe'] + kubectl_args
+        
+        try:
+            subprocess.run(cmd, check=False)
+        except Exception as e:
+            print(f"Error executing describe: {e}")
 
-    # TODO: Yet to implement
     def connect(self):
-        pass
+        """Connect (exec) into a pod."""
+        namespace = self.processed_args.get('namespace') or get_current_namespace()
+        resource_type = self.processed_args.get('resource_type')
+        name = self.processed_args.get('name')
+        
+        if resource_type == 'pod' and name:
+            shell_type = detect_shell(name, namespace)
+            exec_into_pod(name, namespace, shell_type)
+        elif resource_type == 'job' and name:
+            # For jobs, show TUI to select a pod
+            from .tui.k8s import K8sClient
+            k8s = K8sClient(namespace=namespace)
+            pods = k8s.get_pods(namespace=namespace, job_name=name)
+            if pods:
+                if len(pods) == 1:
+                    # Only one pod, exec into it directly
+                    pod_name = pods[0].name
+                    shell_type = detect_shell(pod_name, namespace)
+                    exec_into_pod(pod_name, namespace, shell_type)
+                else:
+                    # Launch TUI to select pod
+                    result = run_tui(mode="pods", namespace=namespace, job_name=name)
+                    if result and isinstance(result, tuple):
+                        action, pod_name, ns = result
+                        if action == "exec":
+                            self._exec_into_pod(pod_name, ns)
+            else:
+                print(f"No pods found for job {name}")
+        else:
+            run_tui(mode="jobs", namespace=namespace)
 
-    # TODO: Yet to implement
     def delete(self):
-        pass
+        """Delete a resource."""
+        namespace = self.processed_args.get('namespace') or get_current_namespace()
+        resource_type = self.processed_args.get('resource_type')
+        name = self.processed_args.get('name')
+        kubectl_args = self.processed_args.get('kubectl_args', [])
+        
+        delete_resource(name=name, resource_type=resource_type, namespace=namespace, kubectl_args=kubectl_args)
 
 def run(args, command, subcommand=None):
     # Jet instance
@@ -462,6 +549,8 @@ def run(args, command, subcommand=None):
             jet.list_jobs()
         elif subcommand in ['pods', 'pod', 'po', 'p']:
             jet.list_pods()
+        else:
+            jet.list_jobs()  # Default to listing jobs
     elif command == 'get':
         jet.get_status()
     elif command == 'logs':
@@ -476,7 +565,36 @@ def run(args, command, subcommand=None):
 def cli():
     
     # Command line arguments
-    args = parse_arguments()
+    parser, args = parse_arguments()
+
+    # Handle case when no command is provided
+    if args.jet_command is None:
+        return print_help_and_exit(parser)
+
+    # Handle case when 'launch' is provided but no subcommand (job/jupyter/debug)
+    if args.jet_command == 'launch' and (not hasattr(args, 'launch_type') or args.launch_type is None):
+        return print_help_and_exit(parser, 'launch')
+
+    # Handle case when 'launch job/jupyter/debug' is provided but no name
+    if args.jet_command == 'launch' and args.launch_type in ['job', 'jupyter', 'debug']:
+        if not hasattr(args, 'name') or args.name is None:
+            return print_help_and_exit(parser, f'launch_{args.launch_type}')
+
+    # Handle case when 'logs' is provided but no arguments
+    if args.jet_command == 'logs' and (not hasattr(args, 'logs_args') or not args.logs_args):
+        return print_help_and_exit(parser, 'logs')
+
+    # Handle case when 'connect' is provided but no arguments
+    if args.jet_command == 'connect' and (not hasattr(args, 'connect_args') or not args.connect_args):
+        return print_help_and_exit(parser, 'connect')
+
+    # Handle case when 'delete' is provided but no arguments
+    if args.jet_command == 'delete' and (not hasattr(args, 'delete_args') or not args.delete_args):
+        return print_help_and_exit(parser, 'delete')
+
+    # Handle case when 'describe' is provided but no arguments
+    if args.jet_command == 'describe' and (not hasattr(args, 'describe_args') or not args.describe_args):
+        return print_help_and_exit(parser, 'describe')
 
     # Process arguments
     processor = ProcessArguments(args)
