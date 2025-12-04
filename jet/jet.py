@@ -8,7 +8,7 @@ from .process_args import ProcessArguments
 from .tui.app import run_tui
 import time
 import signal
-from defaults import JET_HOME
+from .defaults import JET_HOME
 
 
 def get_kubectl_help(command):

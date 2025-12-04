@@ -12,7 +12,7 @@ import re
 from collections import defaultdict
 import shutil
 import textwrap
-from defaults import JET_HOME
+from .defaults import JET_HOME
 
 
 def get_current_namespace():
