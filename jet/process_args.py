@@ -444,11 +444,13 @@ class ProcessArguments:
             self._add_volume_with_dedupe(pod_spec, v, existing_volumes_by_name, existing_volumes_by_mount, dedupe_by_name=True)
 
         # Security Context
-        # TODO: Make this optional with a flag?
+        # TODO: Make this optional with a flag? Should allowPrivilegeEscalation and runAsNonRoot be configurable?
         pod_spec.security_context = {
             'runAsUser': os.getuid(),
             'runAsGroup': os.getgid(),
-            'fsGroup': os.getgid()
+            'fsGroup': os.getgid(),
+            'allowPrivilegeEscalation': False,
+            'runAsNonRoot': True
         }
 
         # Container Spec
