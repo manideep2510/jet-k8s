@@ -449,9 +449,13 @@ class ProcessArguments:
             'runAsUser': os.getuid(),
             'runAsGroup': os.getgid(),
             'fsGroup': os.getgid(),
-            'allowPrivilegeEscalation': False,
             'runAsNonRoot': True
         }
+        pod_spec.containers[0].security_context = pod_spec.security_context.copy()
+        pod_spec.containers[0].security_context['allowPrivilegeEscalation'] = False
+        # Remove fsGroup from container security context as it's not valid there
+        if 'fsGroup' in pod_spec.containers[0].security_context:
+            pod_spec.containers[0].security_context.pop('fsGroup')
 
         # Container Spec
         if not pod_spec.containers:
@@ -624,7 +628,6 @@ class ProcessArguments:
                     key, value = env.split('=', 1)
                     env_vars[key] = value
                 else:
-                    print("******************", env)
                     raise ValueError("Invalid environment variable format. Use KEY=VALUE or provide a valid env file path.")
         return env_vars
     

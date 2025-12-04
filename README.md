@@ -2,7 +2,7 @@
 
 Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubernetes that simplifies batch job management with a focus on ML workloads.
 
-[![PyPI version](https://badge.fury.io/py/Jet-k8s.svg)](https://badge.fury.io/py/Jet-k8s) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![PyPI version](https://badge.fury.io/py/jet-k8s.svg)](https://badge.fury.io/py/jet-k8s) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ## Features
 

@@ -396,7 +396,6 @@ class Jet():
 
             # Exec into the debug pod with the specified shell
             print(f"Connecting to debug pod \x1b[1;38;2;30;144;255m{debug_pod_name}\x1b[0m. Use \x1b[1;33mexit\x1b[0m to terminate the session and delete the debug job.\n")
-            print(job_config_obj.spec.template_spec.containers[0].command)
             exec_into_pod(
                 pod_name=debug_pod_name,
                 namespace=job_config_obj.metadata.namespace,
