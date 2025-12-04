@@ -31,5 +31,6 @@ Issues = "https://github.com/manideep2510/jet-k8s/issues"
 [project.scripts]
 jet = "jet.jet:cli"
 
-[tool.setuptools]
-packages = ["jet"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jet*"]

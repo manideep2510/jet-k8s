@@ -210,4 +210,3 @@ __marimo__/
 .DS_Store
 thumbs.db
 logs/
-tests/

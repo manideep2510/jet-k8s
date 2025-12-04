@@ -15,7 +15,7 @@ Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubern
 
 ## Overview
 
-Jet K8s eliminates the complexity of Kubernetes YAML configuration files, providing a streamlined CLI experience for:
+Jet-K8s eliminates the complexity of Kubernetes YAML configuration files, providing a streamlined CLI experience for:
 - Defining and submitting batch jobs
 - Running interactive Jupyter notebook sessions on Kubernetes with automatic port forwarding.
 - Creating interactive shell debug environments for troubleshooting and debugging.
@@ -34,8 +34,8 @@ Perfect for ML engineers and researchers who want to leverage Kubernetes for ML 
 
 3. A running Kubernetes cluster, with kubeconfig properly set up to access the cluster from your local machine.
  
-### Install Jet K8s
-Jet k8s can be installed using pip from PyPI:
+### Install Jet-K8s
+Jet-K8s can be installed using pip from PyPI:
 
 ```bash
 pip install jet-k8s
@@ -64,9 +64,9 @@ Some key reasons for using Kubernetes Jobs for ML workloads:
 
 ## Notes
 
-1. Jet K8s currenty supports only Kubernetes clusters with NVIDIA GPU nodes.
+1. Jet-K8s currenty supports only Kubernetes clusters with NVIDIA GPU nodes.
 
-2. Jet K8S currently only supports KAI Scheduler for job scheduling.
+2. Jet-K8s currently only supports KAI Scheduler for job scheduling.
 
 3. Pod's `restartPolicy` is set to `Never` for all jobs types by default and job's themselves have `backoffLimit` set to None (so defaults to Kubernetes defaults of 6). This configuration is to ensure that when the containers in pods fail, they are not restarted indefinitely on the same resources, but instead rescheduled on different resources by the job controller. You can override this using the `--restart-policy` argument.
 
@@ -78,7 +78,7 @@ For example, to label a node with an A100 GPU, you can use:
 
 5. The pod security context is set to run containers with the same user and group ID as the user executing the `jet` command. This is to ensure proper file permission handling when mounting host directories or volumes. If your use case requires running containers with different user/group IDs, please raise an issue or contribute a PR to make this configurable.
 
-6. The --pyenv argument mounts a Python virtual environment from the host into the container at the same path and adjusts the containers' `PATH` environment variable accordingly. Ensure that the virtual environment is compatible with the container's image.
+6. The `--pyenv` argument mounts a Python virtual environment from the host into the container at the same path and adjusts the containers' `PATH` environment variable accordingly. Ensure that the virtual environment is compatible with the container's image.
 
 ## TODOs:
 
