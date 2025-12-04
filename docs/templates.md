@@ -17,7 +17,7 @@ jet launch job my-ml-template \
   --save-template
 ```
 
-The template is saved to `~/.jet/templates/` with the job name.
+The template is saved to `~/.local/share/jet/templates/` or `$XDG_DATA_HOME/jet/templates/` with the job name.
 
 ## Using a Template
 
@@ -143,10 +143,10 @@ jet launch job my-job --template /path/to/template.yaml
 
 ## Template Storage
 
-Templates are stored in `~/.jet/templates/` as YAML files:
+Templates are stored in `~/.local/share/jet/templates/` or `$XDG_DATA_HOME/jet/templates/` as YAML files:
 
 ```
-~/.jet/templates/
+~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/
 ├── job/
 │   ├── my-job-template.yaml
 │   └── training-template.yaml

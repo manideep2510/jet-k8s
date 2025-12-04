@@ -8,6 +8,7 @@ from .process_args import ProcessArguments
 from .tui.app import run_tui
 import time
 import signal
+from defaults import JET_HOME
 
 
 def get_kubectl_help(command):
@@ -60,7 +61,7 @@ def parse_arguments():
     job_parser = launch_subparsers.add_parser('job', help='Launch a job')
     job_parser.add_argument('name', nargs='?', help='Name of the job or path to job file')
     parser._subparsers_map['launch_job'] = job_parser
-    job_parser.add_argument('--template', help='Name of the job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
+    job_parser.add_argument('--template', help='Name of the job template to use. A template name saved by jet at ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/ or a full path to a job yaml file.')
     job_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     job_parser.add_argument('--image', help='Container image name')
     job_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
@@ -83,13 +84,13 @@ def parse_arguments():
     job_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     job_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     job_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
-    job_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
+    job_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/')
 
     # Launch Jupyter
     jupyter_parser = launch_subparsers.add_parser('jupyter', help='Launch a Jupyter Notebook server')
     jupyter_parser.add_argument('name', nargs='?', help='Name of the Jupyter job')
     parser._subparsers_map['launch_jupyter'] = jupyter_parser
-    jupyter_parser.add_argument('--template', help='Name of the Jupyter job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
+    jupyter_parser.add_argument('--template', help='Name of the Jupyter job template to use. A template name saved by jet at ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/ or a full path to a job yaml file.')
     jupyter_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     jupyter_parser.add_argument('--image', help='Container image name')
     jupyter_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
@@ -110,13 +111,13 @@ def parse_arguments():
     jupyter_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     jupyter_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     jupyter_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
-    jupyter_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
+    jupyter_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/')
 
     # Launch Debug session
     debug_parser = launch_subparsers.add_parser('debug', help='Launch a debug session')
     debug_parser.add_argument('name', nargs='?', help='Name of the debug job')
     parser._subparsers_map['launch_debug'] = debug_parser
-    debug_parser.add_argument('--template', help='Name of the debug job template to use. A template name saved by jet at ~/.jet/templates/ or a full path to a job yaml file.')
+    debug_parser.add_argument('--template', help='Name of the debug job template to use. A template name saved by jet at ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/ or a full path to a job yaml file.')
     debug_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     debug_parser.add_argument('--image', help='Container image name')
     debug_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
@@ -137,7 +138,7 @@ def parse_arguments():
     debug_parser.add_argument('--follow', '-f', action='store_true', help='Follow job logs')
     debug_parser.add_argument('--dry-run', action='store_true', help='If provided, job yaml will be printed but not submitted')
     debug_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
-    debug_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.jet/templates/')
+    debug_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/')
 
     # List command
     list_parser = subparsers.add_parser('list', help='List resources (templates, jobs, or pods). Defaults to listing jobs if no subcommand is provided.')
@@ -205,7 +206,7 @@ def print_help_and_exit(parser, subparser_key=None):
 class Jet():
     def __init__(self, processed_args):
         self.processed_args = processed_args
-        self.template_manager = TemplateManager()
+        self.template_manager = TemplateManager(templates_dir=JET_HOME / "templates")
 
     def launch_job(self):
         job_config_obj = self.processed_args
