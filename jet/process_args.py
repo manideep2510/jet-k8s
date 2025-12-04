@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from .utils import TemplateManager
 from .job_config import JobConfig, JobMetadata, JobSpec, PodSpec, ContainerSpec, VolumeSpec, ResourceSpec
-from defaults import *
+from .defaults import *
 
 
 class ProcessArguments:
