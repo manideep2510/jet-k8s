@@ -46,7 +46,7 @@ def make_kubectl_help_formatter(kubectl_command):
 def parse_arguments():
 
     # Note: No default values are set here for any arguments, as defaults are handled in process_args.py based on template or default values.
-    parser = argparse.ArgumentParser(description="Jet CLI Tool")
+    parser = argparse.ArgumentParser(description="Jet CLI")
     subparsers = parser.add_subparsers(dest='jet_command')
 
     # Store parser references for printing help when needed

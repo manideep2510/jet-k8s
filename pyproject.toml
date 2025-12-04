@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jet-k8s"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
     { name = "Manideep Kolla", email = "manideep2510@gmail.com" }
 ]
@@ -31,7 +31,5 @@ Issues = "https://github.com/manideep2510/jet-k8s/issues"
 [project.scripts]
 jet = "jet.jet:cli"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["jet*"]
-exclude = ["tests*", "garbage*"]
+[tool.setuptools]
+packages = ["jet"]
