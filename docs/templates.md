@@ -221,7 +221,7 @@ jet launch job test --template my-template --dry-run
 
 ## Also See
 
-- [Submitting Jobs](submitting-jobs.md) - Job submission options
-- [Starting Jupyter Sessions](jupyter-notebooks.md) - Jupyter configuration
-- [Starting Debug Sessions](debug-sessions.md) - Debug session options
-- [Monitoring Jobs](monitoring-jobs.md) - TUI and real-time job monitoring
+- [Submitting Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/submitting-jobs.md) - Job submission options
+- [Starting Jupyter Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/jupyter-notebooks.md) - Jupyter configuration
+- [Starting Debug Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/debug-sessions.md) - Debug session options
+- [Monitoring Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/monitoring-jobs.md) - TUI and real-time job monitoring

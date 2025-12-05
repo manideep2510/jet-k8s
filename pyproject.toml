@@ -34,3 +34,9 @@ jet = "jet.jet:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["jet*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.data-files]
+"share/jet-k8s/docs" = ["docs/*.md", "docs/**/*.md"]

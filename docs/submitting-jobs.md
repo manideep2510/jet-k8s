@@ -236,8 +236,8 @@ jet launch job my-ml-training \
 
 ## Also See
 
-- [Starting Jupyter Sessions](jupyter-notebooks.md) - Jupyter configuration
-- [Starting Debug Sessions](debug-sessions.md) - Debug session options
-- [Using Job Templates](templates.md) - Save and reuse job configurations
-- [Monitoring Jobs](monitoring-jobs.md) - TUI and real-time job monitoring
-- [Other Commands](other-commands.md) - Delete, describe, and manage jobs
+- [Starting Jupyter Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/jupyter-notebooks.md) - Jupyter configuration
+- [Starting Debug Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/debug-sessions.md) - Debug session options
+- [Using Job Templates](https://github.com/manideep2510/jet-k8s/blob/main/docs/templates.md) - Save and reuse job configuration templates
+- [Monitoring Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/monitoring-jobs.md) - TUI and real-time job monitoring
+- [Other Commands](https://github.com/manideep2510/jet-k8s/blob/main/docs/other-commands.md) - Delete, describe, and manage jobs

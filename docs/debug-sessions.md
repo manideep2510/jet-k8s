@@ -207,7 +207,7 @@ jet launch debug my-debug \
 
 ## Also See
 
-- [Submitting Jobs](submitting-jobs.md) - Run batch jobs
-- [Starting Jupyter Sessions](jupyter-notebooks.md) - Interactive notebooks
-- [Using Job Templates](templates.md) - Save and reuse configurations
-- [Monitoring Jobs](monitoring-jobs.md) - TUI and real-time job monitoring
+- [Submitting Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/submitting-jobs.md) - Run batch jobs
+- [Starting Jupyter Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/jupyter-notebooks.md) - Interactive notebooks
+- [Using Job Templates](https://github.com/manideep2510/jet-k8s/blob/main/docs/templates.md) - Save and reuse configuration templates
+- [Monitoring Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/monitoring-jobs.md) - TUI and real-time job monitoring

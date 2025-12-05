@@ -299,7 +299,7 @@ jet delete my-job --force --grace-period 0
 
 ## Also See
 
-- [Monitoring Jobs](monitoring-jobs.md) - TUI and real-time job monitoring
-- [Submitting Jobs](submitting-jobs.md) - Job submission options
-- [Starting Jupyter Sessions](jupyter-notebooks.md) - Jupyter configuration
-- [Starting Debug Sessions](debug-sessions.md) - Debug session options
+- [Monitoring Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/monitoring-jobs.md) - TUI and real-time job monitoring
+- [Submitting Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/submitting-jobs.md) - Job submission options
+- [Starting Jupyter Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/jupyter-notebooks.md) - Jupyter configuration
+- [Starting Debug Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/debug-sessions.md) - Debug session options

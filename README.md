@@ -46,12 +46,12 @@ After installation, you can use the `jet` command in your terminal. Here are som
 
 Please refer to the following sections for detailed user guides.
 
-- [Submitting Jobs](docs/submitting-jobs.md)
-- [Starting Jupyter Notebook Sessions](docs/jupyter-notebooks.md)
-- [Starting Debug Sessions](docs/debug-sessions.md)
-- [Using Job Templates](docs/templates.md)
-- [Monitoring Jobs](docs/monitoring-jobs.md)
-- [Other Commands](docs/other-commands.md)
+- [Submitting Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/submitting-jobs.md)
+- [Starting Jupyter Notebook Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/jupyter-notebooks.md)
+- [Starting Debug Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/debug-sessions.md)
+- [Using Job Templates](https://github.com/manideep2510/jet-k8s/blob/main/docs/templates.md)
+- [Monitoring Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/monitoring-jobs.md)
+- [Other Commands](https://github.com/manideep2510/jet-k8s/blob/main/docs/other-commands.md)
 
 ## Why Jobs?
 
