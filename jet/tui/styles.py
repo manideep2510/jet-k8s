@@ -43,9 +43,8 @@ Static {
 }
 
 #content {
-    /* height: 100%; */
     height: 1fr;
-    width: 100%;
+    width: 1fr;
     padding: 0;
     margin: 0;
     scrollbar-size: 0 0;
@@ -53,11 +52,12 @@ Static {
 
 DataTable {
     /* Use the theme's background color */
-    # height: 100%;
-    # width: 100%;
+    width: 1fr;
+    min-width: 100%;
     /* Add "%0" after background to make the background fully transparent. */
     background: $background;
-    scrollbar-size: 1 1;
+    scrollbar-size-horizontal: 0;
+    scrollbar-size-vertical: 1;
     scrollbar-background: #0a0a0a;
     scrollbar-color: #333333;
     scrollbar-color-hover: #555555;

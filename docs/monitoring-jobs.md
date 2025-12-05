@@ -31,11 +31,11 @@ The TUI provides:
 
 | Key | Action |
 |-----|--------|
-| `↑`/`↓` | Navigate job list |
-| `Enter` or `→` | To select the job or pod |
-| `←` or `Esc` | Go back |
+| `↑`/`↓` | Navigate job or pod list |
+| `Enter` | Select the job or pod |
+| `Esc` | Go back |
 | `l` | View job or pod logs. Press Ctrl+C to stop following logs and return to TUI |
-| `d` | To describe selected job or pod |
+| `d` | Describe selected job or pod |
 | `x` | Delete selected job or pod |
 | `s` | Exec into selected pod |
 | `/` | Filter jobs or pods by name |
@@ -43,5 +43,5 @@ The TUI provides:
 | `h` | Press `h` and then a number to print head of logs |
 | `p` | Go to pods view from jobs view |
 | `j` | Go to jobs view from pods view |
-| `r` | Refresh job list |
+| `r` | Refresh job or pod list |
 | `q` or `Ctrl+C` | Quit|

@@ -27,7 +27,6 @@ class BaseListScreen(Screen):
         Binding("q", "quit", "Quit", show=True, priority=True),
         Binding("Q", "quit", "Quit", show=False, priority=True),
         Binding("escape", "go_back", "Back", show=True, priority=True),
-        Binding("left", "go_back", "Back", show=False),
         Binding("/", "search", "Search", show=True),
         Binding("r", "refresh", "Refresh", show=True),
         Binding("R", "refresh", "Refresh", show=False),
@@ -104,6 +103,15 @@ class BaseListScreen(Screen):
         if self._age_timer is not None:
             self._age_timer.stop()
             self._age_timer = None
+    
+    def on_resize(self, event) -> None:
+        """Handle terminal resize - update header and recalculate table columns."""
+        self._update_header()
+        self._resize_table_columns()
+    
+    def _resize_table_columns(self) -> None:
+        """Recalculate and update table column widths on resize. Override in subclass."""
+        pass
     
     def _setup_columns(self, table: DataTable) -> None:
         """Override to set up table columns."""
@@ -297,10 +305,8 @@ class JobsScreen(BaseListScreen):
         Binding("q", "quit", "Quit", show=True, priority=True),
         Binding("Q", "quit", "Quit", show=False, priority=True),
         Binding("escape", "go_back", "Back", show=True, priority=True),
-        Binding("left", "go_back", "Back", show=False),
         Binding("/", "search", "Search", show=True),
         Binding("enter", "select_job", "Pods", show=True, priority=True),
-        Binding("right", "select_job", "Pods", show=False),
         Binding("p", "all_pods", "All Pods", show=True),
         Binding("P", "all_pods", "All Pods", show=False),
         Binding("r", "refresh", "Refresh", show=True),
@@ -324,30 +330,128 @@ class JobsScreen(BaseListScreen):
         self.jobs: List[JobInfo] = []
     
     def _setup_columns(self, table: DataTable) -> None:
-        """Set up job table columns."""
-        table.add_columns(
-            "NAME",
-            "STATUS",
-            "COMPLETIONS", 
-            "DURATION",
-            "AGE↑"
-        )
+        """Set up job table columns with dynamic widths."""
+        # Column headers and their base widths
+        # Base width = header length + 2 margin, except for special columns
+        self._col_order = ["NAME", "STATUS", "COMPLETIONS", "DURATION", "AGE↑"]
+        self._base_col_widths = {
+            "NAME": 6,        # "NAME" (4) + 2 margin, but will grow dynamically
+            "STATUS": 8,      # "STATUS" (6) + 2, but will grow dynamically
+            "COMPLETIONS": 13, # "COMPLETIONS" (11) + 2
+            "DURATION": 10,    # "DURATION" (8) + 2 (content is short like "5s")
+            "AGE↑": 5,        # "AGE↑" (4) + 1 (content like "5d")
+        }
+        # Track current dynamic column widths
+        self._current_name_width = self._base_col_widths["NAME"]
+        self._current_status_width = self._base_col_widths["STATUS"]
+        
+        widths = self._calculate_column_widths()
+        for col_name in self._col_order:
+            table.add_column(col_name, width=widths[col_name])
+    
+    def _calculate_column_widths(self) -> dict:
+        """Calculate column widths, distributing space evenly."""
+        try:
+            screen_width = self.app.size.width
+        except Exception:
+            screen_width = 80
+        
+        num_cols = len(self._col_order)
+        # Account for DataTable borders/padding and right margin
+        overhead = 6 + num_cols
+        usable_width = screen_width - overhead
+        
+        # Dynamic columns use their current widths, others use base widths
+        dynamic_cols = {"NAME", "STATUS"}
+        dynamic_total = self._current_name_width + self._current_status_width
+        
+        # Non-dynamic columns and their base widths
+        non_dynamic_cols = [c for c in self._col_order if c not in dynamic_cols]
+        non_dynamic_base = sum(self._base_col_widths[c] for c in non_dynamic_cols)
+        
+        # Total base width needed
+        total_base = dynamic_total + non_dynamic_base
+        
+        widths = {}
+        
+        if usable_width >= total_base:
+            # Enough space - distribute extra evenly, with remainder going to first columns
+            extra = usable_width - total_base
+            extra_per_col = extra // num_cols
+            remainder = extra % num_cols
+            
+            for i, col in enumerate(self._col_order):
+                if col in dynamic_cols:
+                    base = self._current_name_width if col == "NAME" else self._current_status_width
+                else:
+                    base = self._base_col_widths[col]
+                # Give +1 to first 'remainder' columns to use up all space
+                widths[col] = base + extra_per_col + (1 if i < remainder else 0)
+        else:
+            # Not enough space - dynamic columns get their width, others get base
+            widths["NAME"] = self._current_name_width
+            widths["STATUS"] = self._current_status_width
+            for col in non_dynamic_cols:
+                widths[col] = self._base_col_widths[col]
+        
+        return widths
+    
+    def _update_name_column_width(self, names: List[str]) -> bool:
+        """Update NAME column width based on current data. Returns True if width changed."""
+        if not names:
+            return False
+        max_name_len = max(len(name) for name in names)
+        needed_width = max(max_name_len + 2, self._base_col_widths["NAME"])  # At least base width
+        
+        if needed_width != self._current_name_width:
+            self._current_name_width = needed_width
+            return True
+        return False
+    
+    def _update_status_column_width(self, statuses: List[str]) -> bool:
+        """Update STATUS column width based on current data. Returns True if width changed."""
+        if not statuses:
+            return False
+        max_status_len = max(len(status) for status in statuses)
+        needed_width = max(max_status_len + 2, self._base_col_widths["STATUS"])  # At least base width
+        
+        if needed_width != self._current_status_width:
+            self._current_status_width = needed_width
+            return True
+        return False
     
     def _update_header(self) -> None:
         """Update the header."""
         header = self.query_one("#header", Static)
         title = f"jobs({self.namespace})[{self.resource_count}]"
         
+        # Build the center content first to calculate padding
+        center_content = f" {title} "
+        if self.filter_text:
+            center_content += f"</{self.filter_text}> "
+        
+        # Get available width (terminal width minus corners and padding)
+        try:
+            total_width = self.app.size.width - 4  # Account for corners and some padding
+        except Exception:
+            total_width = 80  # Fallback
+        
+        # Calculate padding on each side
+        center_len = len(center_content)
+        remaining = max(0, total_width - center_len)
+        left_pad = remaining // 2
+        right_pad = remaining - left_pad
+        
         header_text = Text()
         header_text.append("┌", style="bold cyan")
-        header_text.append("─" * 30, style="cyan")
+        header_text.append("─" * left_pad, style="cyan")
         header_text.append(f" {title} ", style="bold white")
         if self.filter_text:
             header_text.append("<", style="white")
             header_text.append(f"/{self.filter_text}", style="bold yellow on #333333")
             header_text.append(">", style="white")
             header_text.append(" ", style="")
-        header_text.append("─" * 30, style="cyan")
+        header_text.append("─" * right_pad, style="cyan")
         header_text.append("┐", style="bold cyan")
         
         header.update(header_text)
@@ -382,13 +486,20 @@ class JobsScreen(BaseListScreen):
         
         table = self.query_one("#resource-table", DataTable)
         
+        # Check if NAME or STATUS columns need resizing based on current data
+        job_names = [j.name for j in filtered_jobs]
+        job_statuses = [j.status for j in filtered_jobs]
+        name_changed = self._update_name_column_width(job_names)
+        status_changed = self._update_status_column_width(job_statuses)
+        if name_changed or status_changed:
+            self._resize_table_columns()
+        
         # Save cursor position BEFORE clearing (clear resets cursor to 0)
         current_cursor = table.cursor_row if table.row_count > 0 else 0
         
         # Determine target row: prefer restore cursor, then saved current position
         if self._restore_cursor is not None:
             target_row = self._restore_cursor
-            # Don't clear yet - only clear after successful restore
         else:
             target_row = current_cursor
         
@@ -413,7 +524,6 @@ class JobsScreen(BaseListScreen):
         if table.row_count > 0 and target_row is not None:
             row = min(target_row, table.row_count - 1)
             table.move_cursor(row=row)
-            # Only clear _restore_cursor if we actually had enough rows to restore properly
             if self._restore_cursor is not None and table.row_count > self._restore_cursor:
                 self._restore_cursor = None
     
@@ -549,6 +659,21 @@ class JobsScreen(BaseListScreen):
         """Go to all pods view."""
         self.app.push_screen(PodsScreen(namespace=self.namespace))
     
+    def _resize_table_columns(self) -> None:
+        """Recalculate all column widths on resize."""
+        try:
+            table = self.query_one("#resource-table", DataTable)
+            if not hasattr(self, '_base_col_widths'):
+                return
+            widths = self._calculate_column_widths()
+            columns = list(table.columns.keys())
+            for i, col_key in enumerate(columns):
+                col_name = self._col_order[i]
+                table.columns[col_key].width = widths[col_name]
+            table.refresh()
+        except Exception:
+            pass
+    
     def _get_selected_name(self) -> Optional[str]:
         """Get the name of the selected job."""
         table = self.query_one("#resource-table", DataTable)
@@ -568,10 +693,8 @@ class PodsScreen(BaseListScreen):
         Binding("q", "quit", "Quit", show=True, priority=True),
         Binding("Q", "quit", "Quit", show=False, priority=True),
         Binding("escape", "go_back", "Back", show=True, priority=True),
-        Binding("left", "go_back", "Back", show=False),
         Binding("/", "search", "Search", show=True),
         Binding("enter", "logs", "Logs", show=True, priority=True),
-        Binding("right", "logs", "Logs", show=False),
         Binding("j", "all_jobs", "All Jobs", show=True),
         Binding("J", "all_jobs", "All Jobs", show=False),
         Binding("r", "refresh", "Refresh", show=True),
@@ -602,17 +725,97 @@ class PodsScreen(BaseListScreen):
         self.pods: List[PodInfo] = []
     
     def _setup_columns(self, table: DataTable) -> None:
-        """Set up pod table columns."""
-        table.add_columns(
-            "NAME↑",
-            # "PF",
-            "READY",
-            "STATUS",
-            "RESTARTS",
-            "IP",
-            "NODE",
-            "AGE"
-        )
+        """Set up pod table columns with dynamic widths."""
+        # Column headers and their base widths
+        # Base width = header length + 2 margin, except for special columns
+        self._col_order = ["NAME↑", "READY", "STATUS", "RESTARTS", "IP", "NODE", "AGE"]
+        self._base_col_widths = {
+            "NAME↑": 6,       # "NAME↑" (5) + 1, but will grow dynamically
+            "READY": 7,       # "READY" (5) + 2
+            "STATUS": 8,      # "STATUS" (6) + 2, but will grow dynamically
+            "RESTARTS": 10,   # "RESTARTS" (8) + 2
+            "IP": 14,         # "IP" (2) + 2, but IPs are ~12 chars
+            "NODE": 7,        # "NODE" (4) + 2, truncated to fit
+            "AGE": 5,         # "AGE" (3) + 2
+        }
+        # Track current dynamic column widths
+        self._current_name_width = self._base_col_widths["NAME↑"]
+        self._current_status_width = self._base_col_widths["STATUS"]
+        
+        widths = self._calculate_column_widths()
+        for col_name in self._col_order:
+            table.add_column(col_name, width=widths[col_name])
+    
+    def _calculate_column_widths(self) -> dict:
+        """Calculate column widths, distributing space evenly."""
+        try:
+            screen_width = self.app.size.width
+        except Exception:
+            screen_width = 80
+        
+        num_cols = len(self._col_order)
+        # Account for DataTable borders/padding and right margin
+        overhead = 6 + num_cols
+        usable_width = screen_width - overhead
+        
+        # Dynamic columns use their current widths, others use base widths
+        dynamic_cols = {"NAME↑", "STATUS"}
+        dynamic_total = self._current_name_width + self._current_status_width
+        
+        # Non-dynamic columns and their base widths
+        non_dynamic_cols = [c for c in self._col_order if c not in dynamic_cols]
+        non_dynamic_base = sum(self._base_col_widths[c] for c in non_dynamic_cols)
+        
+        # Total base width needed
+        total_base = dynamic_total + non_dynamic_base
+        
+        widths = {}
+        
+        if usable_width >= total_base:
+            # Enough space - distribute extra evenly, with remainder going to first columns
+            extra = usable_width - total_base
+            extra_per_col = extra // num_cols
+            remainder = extra % num_cols
+            
+            for i, col in enumerate(self._col_order):
+                if col in dynamic_cols:
+                    base = self._current_name_width if col == "NAME↑" else self._current_status_width
+                else:
+                    base = self._base_col_widths[col]
+                # Give +1 to first 'remainder' columns to use up all space
+                widths[col] = base + extra_per_col + (1 if i < remainder else 0)
+        else:
+            # Not enough space - dynamic columns get their width, others get base
+            widths["NAME↑"] = self._current_name_width
+            widths["STATUS"] = self._current_status_width
+            for col in non_dynamic_cols:
+                widths[col] = self._base_col_widths[col]
+        
+        return widths
+    
+    def _update_name_column_width(self, names: List[str]) -> bool:
+        """Update NAME column width based on current data. Returns True if width changed."""
+        if not names:
+            return False
+        max_name_len = max(len(name) for name in names)
+        needed_width = max(max_name_len + 2, self._base_col_widths["NAME↑"])  # At least base width
+        
+        if needed_width != self._current_name_width:
+            self._current_name_width = needed_width
+            return True
+        return False
+    
+    def _update_status_column_width(self, statuses: List[str]) -> bool:
+        """Update STATUS column width based on current data. Returns True if width changed."""
+        if not statuses:
+            return False
+        max_status_len = max(len(status) for status in statuses)
+        needed_width = max(max_status_len + 2, self._base_col_widths["STATUS"])  # At least base width
+        
+        if needed_width != self._current_status_width:
+            self._current_status_width = needed_width
+            return True
+        return False
     
     def _update_header(self) -> None:
         """Update the header."""
@@ -623,16 +826,33 @@ class PodsScreen(BaseListScreen):
         else:
             title = f"pods({self.namespace})[{self.resource_count}]"
         
+        # Build the center content first to calculate padding
+        center_content = f" {title} "
+        if self.filter_text:
+            center_content += f"</{self.filter_text}> "
+        
+        # Get available width (terminal width minus corners and padding)
+        try:
+            total_width = self.app.size.width - 4  # Account for corners and some padding
+        except Exception:
+            total_width = 80  # Fallback
+        
+        # Calculate padding on each side
+        center_len = len(center_content)
+        remaining = max(0, total_width - center_len)
+        left_pad = remaining // 2
+        right_pad = remaining - left_pad
+        
         header_text = Text()
         header_text.append("┌", style="bold cyan")
-        header_text.append("─" * 20, style="cyan")
+        header_text.append("─" * left_pad, style="cyan")
         header_text.append(f" {title} ", style="bold white")
         if self.filter_text:
             header_text.append("<", style="white")
             header_text.append(f"/{self.filter_text}", style="bold yellow on #333333")
             header_text.append(">", style="white")
             header_text.append(" ", style="")
-        header_text.append("─" * 20, style="cyan")
+        header_text.append("─" * right_pad, style="cyan")
         header_text.append("┐", style="bold cyan")
         
         header.update(header_text)
@@ -667,13 +887,20 @@ class PodsScreen(BaseListScreen):
         
         table = self.query_one("#resource-table", DataTable)
         
+        # Check if NAME or STATUS columns need resizing based on current data
+        pod_names = [p.name for p in filtered_pods]
+        pod_statuses = [p.status for p in filtered_pods]
+        name_changed = self._update_name_column_width(pod_names)
+        status_changed = self._update_status_column_width(pod_statuses)
+        if name_changed or status_changed:
+            self._resize_table_columns()
+        
         # Save cursor position BEFORE clearing (clear resets cursor to 0)
         current_cursor = table.cursor_row if table.row_count > 0 else 0
         
         # Determine target row: prefer restore cursor, then saved current position
         if self._restore_cursor is not None:
             target_row = self._restore_cursor
-            # Don't clear yet - only clear after successful restore
         else:
             target_row = current_cursor
         
@@ -681,16 +908,12 @@ class PodsScreen(BaseListScreen):
         table.clear()
         
         for pod in filtered_pods:
-            # TODO: Port forward indicator - disabled for now
-            # pf = Text("●", style="green") if pod.port_forward else Text("○", style="dim")
-            
             # Color status
             status_style = self._get_status_style(pod.status)
             status_text = Text(pod.status, style=status_style)
             
             table.add_row(
                 pod.name,
-                # pf,
                 pod.ready,
                 status_text,
                 str(pod.restarts),
@@ -704,7 +927,6 @@ class PodsScreen(BaseListScreen):
         if table.row_count > 0 and target_row is not None:
             row = min(target_row, table.row_count - 1)
             table.move_cursor(row=row)
-            # Only clear _restore_cursor if we actually had enough rows to restore properly
             if self._restore_cursor is not None and table.row_count > self._restore_cursor:
                 self._restore_cursor = None
     
@@ -740,11 +962,11 @@ class PodsScreen(BaseListScreen):
             table = self.query_one("#resource-table", DataTable)
             if table.row_count == 0:
                 return  # Table not ready yet
-            # Age is the last column (index 7)
+            # Age is the last column (index 6 for 7 columns)
             columns = list(table.columns.keys())
-            if len(columns) < 8:
+            if len(columns) < 7:
                 return
-            age_column_key = columns[7]
+            age_column_key = columns[6]
             for pod in self.pods:
                 try:
                     # Recalculate age from stored created_at timestamp
@@ -849,6 +1071,21 @@ class PodsScreen(BaseListScreen):
         """Go to jobs view."""
         self.app.push_screen(JobsScreen(namespace=self.namespace))
     
+    def _resize_table_columns(self) -> None:
+        """Recalculate all column widths on resize."""
+        try:
+            table = self.query_one("#resource-table", DataTable)
+            if not hasattr(self, '_base_col_widths'):
+                return
+            widths = self._calculate_column_widths()
+            columns = list(table.columns.keys())
+            for i, col_key in enumerate(columns):
+                col_name = self._col_order[i]
+                table.columns[col_key].width = widths[col_name]
+            table.refresh()
+        except Exception:
+            pass
+    
     def _get_selected_name(self) -> Optional[str]:
         """Get the name of the selected pod."""
         table = self.query_one("#resource-table", DataTable)
@@ -865,7 +1102,6 @@ class LogScreen(Screen):
         Binding("q", "quit", "Quit", show=True, priority=True),
         Binding("Q", "quit", "Quit", show=False, priority=True),
         Binding("escape", "go_back", "Back", show=True, priority=True),
-        Binding("left", "go_back", "Back", show=False),
         Binding("f", "toggle_follow", "Follow", show=True),
         Binding("F", "toggle_follow", "Follow", show=False),
         Binding("g", "scroll_home", "Top", show=True),
@@ -1015,7 +1251,6 @@ class DescribeScreen(Screen):
         Binding("q", "quit", "Quit", show=True, priority=True),
         Binding("Q", "quit", "Quit", show=False, priority=True),
         Binding("escape", "go_back", "Back", show=True, priority=True),
-        Binding("left", "go_back", "Back", show=False),
         Binding("g", "scroll_home", "Top", show=True),
         Binding("G", "scroll_end", "Bottom", show=True),
         Binding("j", "scroll_down", "Down", show=False),

@@ -19,7 +19,7 @@ Jet-K8s eliminates the complexity of Kubernetes YAML configuration files, provid
 - Defining and submitting batch jobs
 - Running interactive Jupyter notebook sessions on Kubernetes with automatic port forwarding.
 - Creating interactive shell debug environments for troubleshooting and debugging.
-- Monitoring job status and logs with a lightweight and fast Terminal User Interface (TUI).
+- Monitoring job status and logs with a lightweight and fast Terminal User Interface (TUI) inspired by `k9s`.
 - Automatic job cleanup for Jupyter and debug sessions.
 
 Perfect for ML engineers and researchers who want to leverage Kubernetes for ML training and inference jobs without the YAML overhead.
