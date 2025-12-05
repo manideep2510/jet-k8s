@@ -51,6 +51,7 @@ class BaseListScreen(Screen):
         self._age_timer = None  # Timer for refreshing age display
         self._footer_prompt_callback: Optional[Callable[[int], None]] = None
         self._search_active: bool = False  # Track if search input is active
+        self._watch_worker = None  # Track our own watch worker
         if initial_filter:
             self.filter_text = initial_filter
     
@@ -80,8 +81,11 @@ class BaseListScreen(Screen):
     
     def on_screen_resume(self) -> None:
         """Called when screen becomes active again after being revealed by pop_screen."""
-        # Restart the watch only if no workers are running (they were cancelled)
-        if not any(w.is_running for w in self.workers):
+        # Check if our specific watch worker is still running
+        worker_running = self._watch_worker is not None and self._watch_worker.is_running
+        
+        # Restart the watch only if our worker is not running
+        if not worker_running:
             self._start_watch()
         # Restart age timer if not running
         if self._age_timer is None:
@@ -97,8 +101,10 @@ class BaseListScreen(Screen):
     
     def on_unmount(self) -> None:
         """Clean up when screen is unmounted."""
-        # Cancel all workers (including watch)
-        self.workers.cancel_all()
+        # Cancel only our own watch worker, not all workers
+        if self._watch_worker is not None:
+            self._watch_worker.cancel()
+            self._watch_worker = None
         # Stop age timer
         if self._age_timer is not None:
             self._age_timer.stop()
@@ -155,7 +161,10 @@ class BaseListScreen(Screen):
             return
         
         # Finally: go back or exit
-        self.workers.cancel_all()
+        # NOTE: Don't cancel workers here - on_unmount will handle cleanup.
+        # Cancelling here would cancel workers from OTHER screens too since
+        # Textual workers are app-level, not screen-level.
+        
         # Check if we can go back or should exit
         # screen_stack includes the default screen, so check for <= 2
         if len(self.app.screen_stack) <= 2:
@@ -223,7 +232,10 @@ class BaseListScreen(Screen):
     
     def action_refresh(self) -> None:
         """Manually refresh - restarts the watch."""
-        self.workers.cancel_all()
+        # Cancel our own watch worker and restart
+        if self._watch_worker is not None:
+            self._watch_worker.cancel()
+            self._watch_worker = None
         self._start_watch()
     
     def action_describe(self) -> None:
@@ -458,9 +470,9 @@ class JobsScreen(BaseListScreen):
     
     def _start_watch(self) -> None:
         """Start the jobs watch worker."""
-        self._watch_jobs()
+        self._watch_worker = self._watch_jobs()
     
-    @work(exclusive=True)
+    @work(exclusive=False)
     async def _watch_jobs(self) -> None:
         """Watch jobs and update table on changes."""
         try:
@@ -859,9 +871,9 @@ class PodsScreen(BaseListScreen):
     
     def _start_watch(self) -> None:
         """Start the pods watch worker."""
-        self._watch_pods()
+        self._watch_worker = self._watch_pods()
     
-    @work(exclusive=True)
+    @work(exclusive=False)
     async def _watch_pods(self) -> None:
         """Watch pods and update table on changes."""
         try:
