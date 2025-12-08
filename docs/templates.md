@@ -1,6 +1,6 @@
 # Using Job Templates
 
-Jet K8s allows you to save job configurations as templates for easy reuse and standardization.
+Jet allows you to save job configurations as templates for easy reuse and standardization.
 
 ## Saving a Template
 

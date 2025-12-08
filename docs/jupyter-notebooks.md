@@ -1,6 +1,6 @@
 # Starting Jupyter Notebook Sessions
 
-Jet K8s allows you to launch Jupyter notebook servers on Kubernetes with automatic port forwarding.
+Jet allows you to launch Jupyter notebook servers on Kubernetes with automatic port forwarding.
 
 ## Basic Jupyter Session
 

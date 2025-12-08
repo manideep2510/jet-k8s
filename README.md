@@ -1,4 +1,4 @@
-# Jet K8s: Job Execution Toolkit (Jet) for Kubernetes
+# Jet: A CLI Job Execution Toolkit (Jet) for Kubernetes
 
 Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubernetes that simplifies batch job management with a focus on ML workloads.
 
@@ -15,14 +15,14 @@ Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubern
 
 ## Overview
 
-Jet-K8s eliminates the complexity of Kubernetes YAML configuration files, providing a streamlined CLI experience for:
+Jet eliminates the complexity of Kubernetes YAML configuration files, providing a streamlined CLI experience for:
 - Defining and submitting batch jobs
 - Monitoring job status and logs with a lightweight and fast Terminal User Interface (TUI) inspired by [`k9s`](https://k9scli.io/).
 - Running interactive Jupyter notebook sessions on Kubernetes with automatic port forwarding.
 - Creating interactive shell debug environments for troubleshooting and debugging.
 - Automatic job cleanup for Jupyter and debug sessions.
 
-Perfect for ML engineers and researchers who want to leverage Kubernetes for ML training and inference jobs without the YAML overhead.
+Perfect for ML engineers and researchers who want to leverage Kubernetes for ML training, inference and experimentation jobs without the YAML overhead.
 
 ## Demos 
 
@@ -53,8 +53,8 @@ Perfect for ML engineers and researchers who want to leverage Kubernetes for ML 
 
 3. A running Kubernetes cluster, with kubeconfig properly set up to access the cluster from your local machine.
  
-### Install Jet-K8s
-Jet-K8s can be installed using pip from PyPI:
+### Install Jet
+Jet can be installed using pip from PyPI:
 
 ```bash
 pip install jet-k8s
@@ -83,10 +83,10 @@ Some key reasons for using Kubernetes Jobs for ML workloads:
 
 ## Notes
 
-1. Jet-K8s currenty supports only Kubernetes clusters with NVIDIA GPU nodes.
+1. Jet currently supports only Kubernetes clusters with NVIDIA GPU nodes.
 
-2. Jet-K8s currently only supports KAI Scheduler for job scheduling.
-
+2. Jet currently supports only KAI-scheduler for job scheduling.
+   
 3. Pod's `restartPolicy` is set to `Never` for all jobs types by default and job's themselves have `backoffLimit` set to None (so defaults to Kubernetes defaults of 6). This configuration is to ensure that when the containers in pods fail, they are not restarted indefinitely on the same resources, but instead rescheduled on different resources by the job controller. You can override this using the `--restart-policy` argument.
 
 4. The argument `--gpu-type` is implemented using node selectors. Ensure that your cluster nodes are labeled appropriately for the GPU types you intend to use.

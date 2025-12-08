@@ -1,6 +1,6 @@
 # Monitoring Jobs Real-time with Jet TUI
 
-Jet K8s provides a rich terminal user interface (TUI) to monitor and manage your jobs running on Kubernetes in real-time.
+Jet provides a rich terminal user interface (TUI) to monitor and manage your jobs running on Kubernetes in real-time.
 
 ## The Jet TUI
 

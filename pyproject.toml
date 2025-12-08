@@ -8,7 +8,7 @@ version = "0.1.0"
 authors = [
     { name = "Manideep Kolla", email = "manideep2510@gmail.com" }
 ]
-description = "A CLI Job Execution Toolkit (JET) for Kubernetes"
+description = "A CLI Job Execution Toolkit (Jet) for Kubernetes"
 readme = "README.md"
 requires-python = ">=3.8"
 keywords = ["kubernetes", "k8s", "cli", "job execution", "job management"]
@@ -34,9 +34,3 @@ jet = "jet.jet:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["jet*"]
-
-[tool.setuptools]
-include-package-data = true
-
-[tool.setuptools.data-files]
-"share/jet-k8s/docs" = ["docs/*.md", "docs/**/*.md", "assets/*"]
