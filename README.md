@@ -7,37 +7,41 @@ Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubern
 ## Features
 
 - 🚀 **Simplified Job Submission** - Define and submit Kubernetes jobs directly from the command line without writing YAML files manually.
+- 📊 **Easy Monitoring** - Track and manage batch jobs with a fast and responsive Terminal User Interface (TUI).
 - 📄 **Work with Templates** - Save custom job templates to standardize and simplify job configurations, making your experiments reproducible.
 - 📓 **Jupyter Integration** - Launch Jupyter notebooks on Kubernetes with automatic port forwarding.
 - 🐛 **Debug Sessions** - Spin up interactive debug pods for quick troubleshooting.
-- 📊 **Easy Monitoring** - Track and manage batch jobs with an intuitive Terminal User Interface (TUI).
 - 🤖 **ML Focused** - Designed with Python machine learning workloads and data processing tasks in mind.
 
 ## Overview
 
 Jet-K8s eliminates the complexity of Kubernetes YAML configuration files, providing a streamlined CLI experience for:
 - Defining and submitting batch jobs
+- Monitoring job status and logs with a lightweight and fast Terminal User Interface (TUI) inspired by [`k9s`](https://k9scli.io/).
 - Running interactive Jupyter notebook sessions on Kubernetes with automatic port forwarding.
 - Creating interactive shell debug environments for troubleshooting and debugging.
-- Monitoring job status and logs with a lightweight and fast Terminal User Interface (TUI) inspired by `k9s`.
 - Automatic job cleanup for Jupyter and debug sessions.
 
 Perfect for ML engineers and researchers who want to leverage Kubernetes for ML training and inference jobs without the YAML overhead.
 
-### Submitting Jobs
-[![til](./assets/job-launch.gif)](https://asciinema.org/a/WxvEBtyK4D02BvaLI9CC5a4G4)
+## Demos 
 
-### Starting Jupyter Notebook Sessions and Auto Port-forwarding
-[![jupyter](./assets/jupyter-launch.gif)](https://asciinema.org/a/y5BqZj8wB79aQTBUnHibyeAY7)
+> Click the GIFs to view the demos on Asciinema player with media controls.
 
-### Starting Interactive Debug Sessions
-[![debug](./assets/debug-launch.gif)](https://asciinema.org/a/O3V6kAflQpTaczlKsO7kVAGK2)
-
-### Saving and Using Job Templates
-[![templates](./assets/job-templates.gif)](https://asciinema.org/a/ECWaEYWkT2fJfQHy4zXkow1tP)
+### Submitting Jobs https://github.com/manideep2510/jet-k8s/raw/
+[![til](https://github.com/manideep2510/jet-k8s/raw/main/assets/job-launch.gif)](https://asciinema.org/a/WxvEBtyK4D02BvaLI9CC5a4G4)
 
 ### Monitoring Jobs with TUI
-![tui](./assets/tui.gif)
+[![tui](https://github.com/manideep2510/jet-k8s/raw/main/assets/tui.gif)](https://asciinema.org/a/b1OGpHXfY2RZXieT1EnbVPBgu)
+
+### Starting Jupyter Notebook Sessions and Auto Port-forwarding
+[![jupyter](https://github.com/manideep2510/jet-k8s/raw/main/assets/jupyter-launch.gif)](https://asciinema.org/a/y5BqZj8wB79aQTBUnHibyeAY7)
+
+### Starting Interactive Debug Sessions
+[![debug](https://github.com/manideep2510/jet-k8s/raw/main/assets/debug-launch.gif)](https://asciinema.org/a/O3V6kAflQpTaczlKsO7kVAGK2)
+
+### Saving and Using Job Templates
+[![templates](https://github.com/manideep2510/jet-k8s/raw/main/assets/job-templates.gif)](https://asciinema.org/a/ECWaEYWkT2fJfQHy4zXkow1tP)
 
 ## Installation
 
@@ -99,7 +103,7 @@ For example, to label a node with an A100 GPU, you can use:
 
 - [ ] Add support for fractional GPUs using HAMi plugin for KAI-scheduler (In dev: [KAI-scheduler #60](https://github.com/NVIDIA/KAI-Scheduler/pull/60)).
 - [ ] Add support for other accelerator types such as AMDs and TPUs.
-- [ ] Disentangle from KAI-scheduler to support other similar schedulers or vanilla k8s scheduler.
+- [ ] Disentangle from KAI-scheduler to support other similar schedulers or default K8s scheduler.
 - [ ] Ability to submit jobs with parallism and gang scheduling for usecases such as multi-node training jobs.
 - [ ] Add support for job dependencies and chaining.
 - [ ] Add TUI support for port forwarding.
