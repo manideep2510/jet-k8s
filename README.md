@@ -28,7 +28,7 @@ Perfect for ML engineers and researchers who want to leverage Kubernetes for ML 
 
 > Click the GIFs to view the demos on Asciinema player with media controls.
 
-### Submitting Jobs https://github.com/manideep2510/jet-k8s/raw/
+### Submitting Jobs
 [![til](https://github.com/manideep2510/jet-k8s/raw/main/assets/job-launch.gif)](https://asciinema.org/a/WxvEBtyK4D02BvaLI9CC5a4G4)
 
 ### Monitoring Jobs with TUI
