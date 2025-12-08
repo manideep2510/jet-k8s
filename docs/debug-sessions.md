@@ -1,6 +1,6 @@
 # Starting Debug Sessions
 
-Jet K8s provides easy access to interactive debug sessions for troubleshooting and development directly on Kubernetes.
+Jet provides easy access to interactive debug sessions for troubleshooting and development directly on Kubernetes.
 
 ## Basic Debug Session
 

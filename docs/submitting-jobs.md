@@ -1,6 +1,6 @@
 # Submitting Jobs
 
-Jet K8s makes it easy to submit jobs to Kubernetes without writing YAML files.
+Jet makes it easy to submit jobs to Kubernetes without writing YAML files.
 
 ## Basic Job Submission
 

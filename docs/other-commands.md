@@ -1,6 +1,6 @@
 # Other Commands
 
-This document covers additional Jet K8s commands for managing your jobs.
+This document covers additional Jet commands for managing your jobs.
 
 > **Note**: Commands like `jet logs`, `jet describe`, and `jet delete` are wrappers around `kubectl` commands that work directly on jobs by name (default). You can also specify a resource type explicitly (e.g., `jet logs pod my-pod`). `jet connect` handles job-to-pod resolution to exec into the right pod. All commands pass through additional arguments directly to kubectl, so you can use any kubectl option.
 
