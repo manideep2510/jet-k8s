@@ -24,6 +24,21 @@ Jet-K8s eliminates the complexity of Kubernetes YAML configuration files, provid
 
 Perfect for ML engineers and researchers who want to leverage Kubernetes for ML training and inference jobs without the YAML overhead.
 
+### Submitting Jobs
+[![til](./assets/job-launch.gif)](https://asciinema.org/a/WxvEBtyK4D02BvaLI9CC5a4G4)
+
+### Starting Jupyter Notebook Sessions and Auto Port-forwarding
+[![jupyter](./assets/jupyter-launch.gif)](https://asciinema.org/a/y5BqZj8wB79aQTBUnHibyeAY7)
+
+### Starting Interactive Debug Sessions
+[![debug](./assets/debug-launch.gif)](https://asciinema.org/a/O3V6kAflQpTaczlKsO7kVAGK2)
+
+### Saving and Using Job Templates
+[![templates](./assets/job-templates.gif)](https://asciinema.org/a/ECWaEYWkT2fJfQHy4zXkow1tP)
+
+### Monitoring Jobs with TUI
+![tui](./assets/tui.gif)
+
 ## Installation
 
 ### Dependencies
@@ -86,3 +101,6 @@ For example, to label a node with an A100 GPU, you can use:
 - [ ] Add support for other accelerator types such as AMDs and TPUs.
 - [ ] Disentangle from KAI-scheduler to support other similar schedulers or vanilla k8s scheduler.
 - [ ] Ability to submit jobs with parallism and gang scheduling for usecases such as multi-node training jobs.
+- [ ] Add support for job dependencies and chaining.
+- [ ] Add TUI support for port forwarding.
+- [ ] Add TUI support to change namespaces and contexts.

@@ -29,7 +29,7 @@ jet launch debug my-debug \
   --shell /bin/zsh
 ```
 
-Default is `/bin/bash`. If using zsh, you may want to mount your home directory for your zsh configuration:
+> Default is `/bin/bash`. If using zsh, you may want to mount your home directory for your zsh configuration. This will also give you shell history and other settings:
 
 ```bash
 jet launch debug my-debug \
@@ -77,7 +77,7 @@ jet launch debug my-debug \
 
 ## Mount Home Directory
 
-Mount your entire home directory for full access to your files and configurations:
+Mount your entire home directory for full access to your files and configurations including shell histories, config files, etc.:
 
 ```bash
 jet launch debug my-debug \

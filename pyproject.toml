@@ -11,7 +11,7 @@ authors = [
 description = "A CLI Job Execution Toolkit (JET) for Kubernetes"
 readme = "README.md"
 requires-python = ">=3.8"
-keywords = ["kubernetes", "k8s", "cli"]
+keywords = ["kubernetes", "k8s", "cli", "job execution", "job management"]
 classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
@@ -39,4 +39,4 @@ include = ["jet*"]
 include-package-data = true
 
 [tool.setuptools.data-files]
-"share/jet-k8s/docs" = ["docs/*.md", "docs/**/*.md"]
+"share/jet-k8s/docs" = ["docs/*.md", "docs/**/*.md", "assets/*"]

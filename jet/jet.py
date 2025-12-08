@@ -3,7 +3,7 @@
 
 import argparse
 import subprocess
-from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager, detect_shell, get_current_namespace
+from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager, detect_shell, get_kubeconfig, get_current_namespace
 from .process_args import ProcessArguments
 from .tui.app import run_tui
 import time
@@ -76,7 +76,7 @@ def parse_arguments():
     job_parser.add_argument('--shm-size', help='Size of /dev/shm shared memory')
     job_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
     job_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
-    job_parser.add_argument('--memory', help='Memory request and limit. Format: request[:limit]')
+    job_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: request[:limit]')
     job_parser.add_argument('--gpu', help='Number of GPUs to request')
     job_parser.add_argument('--gpu-type', help='Type of GPU to request')
     job_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')
@@ -102,7 +102,7 @@ def parse_arguments():
     jupyter_parser.add_argument('--shm-size', help='Size of /dev/shm shared memory')
     jupyter_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
     jupyter_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
-    jupyter_parser.add_argument('--memory', help='Memory request and limit. Format: request[:limit]')
+    jupyter_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: request[:limit]')
     jupyter_parser.add_argument('--gpu', help='Number of GPUs to request')
     jupyter_parser.add_argument('--gpu-type', help='Type of GPU to request')
     jupyter_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')
@@ -130,7 +130,7 @@ def parse_arguments():
     debug_parser.add_argument('--shm-size', help='Size of /dev/shm shared memory')
     debug_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
     debug_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
-    debug_parser.add_argument('--memory', help='Memory request and limit. Format: request[:limit]')
+    debug_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: request[:limit]')
     debug_parser.add_argument('--gpu', help='Number of GPUs to request')
     debug_parser.add_argument('--gpu-type', help='Type of GPU to request')
     debug_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')
@@ -165,15 +165,14 @@ def parse_arguments():
     # jet logs <job_name> (defaults to job) or jet logs pod <pod_name>
     logs_parser = subparsers.add_parser('logs', help='Get logs from a job or pod. If no resource type is provided (Examples: `jet logs my-job`), defaults to job.',
                                         formatter_class=make_kubectl_help_formatter('logs'))
-    logs_parser.add_argument('logs_args', nargs='*', metavar='ARG', help='[resource_type] <name> [kubectl_options]. Examples: "my-job", "job my-job", "pod my-pod -f".')
-    logs_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
+    logs_parser.add_argument('logs_args', nargs=argparse.REMAINDER, metavar='ARG', help='[resource_type] <name> [kubectl_options]. Examples: "my-job", "job my-job", "pod my-pod -f".')
     parser._subparsers_map['logs'] = logs_parser
 
     # Describe command
     # Just passing through to kubectl, Pass all args after 'describe' to kubectl
     describe_parser = subparsers.add_parser('describe', help='Describe a job or pod',
                                             formatter_class=make_kubectl_help_formatter('describe'))
-    describe_parser.add_argument('describe_args', nargs='*', help='<resource_type> <name> [options]. Examples: "job my-job", "pod my-pod -n namespace".')
+    describe_parser.add_argument('describe_args', nargs=argparse.REMAINDER, help='<resource_type> <name> [options]. Examples: "job my-job", "pod my-pod -n namespace".')
     parser._subparsers_map['describe'] = describe_parser
 
     # Connect command
@@ -187,8 +186,7 @@ def parse_arguments():
     # jet delete <job_name> (defaults to job) or jet delete pod <pod_name>
     delete_parser = subparsers.add_parser('delete', help='Delete a job or pod. If no resource type is provided (Examples: `jet delete my-job`), defaults to job.',
                                           formatter_class=make_kubectl_help_formatter('delete'))
-    delete_parser.add_argument('delete_args', nargs='*', metavar='ARG', help='[resource_type] <name> [kubectl_options]. Examples: "my-job", "job my-job", "pod my-pod --force".')
-    delete_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
+    delete_parser.add_argument('delete_args', nargs=argparse.REMAINDER, metavar='ARG', help='[resource_type] <name> [kubectl_options]. Examples: "my-job", "job my-job", "pod my-pod --force".')
     parser._subparsers_map['delete'] = delete_parser
 
     return parser, parser.parse_args()
@@ -207,9 +205,24 @@ class Jet():
     def __init__(self, processed_args):
         self.processed_args = processed_args
         self.template_manager = TemplateManager(templates_dir=JET_HOME / "templates")
+        
+        # Load kubeconfig and namespace once at initialization
+        self.kubeconfig = get_kubeconfig()
+        self.namespace = get_current_namespace(self.kubeconfig)
+        
+        # Compute effective namespace (from args or kubectl context)
+        if hasattr(processed_args, 'metadata') and processed_args.metadata.namespace:
+            self.set_namespace = processed_args.metadata.namespace
+        elif isinstance(processed_args, dict) and processed_args.get('namespace'):
+            self.set_namespace = processed_args.get('namespace')
+        else:
+            self.set_namespace = self.namespace
 
     def launch_job(self):
         job_config_obj = self.processed_args
+        
+        # Set namespace from args or kubectl context
+        job_config_obj.metadata.namespace = self.set_namespace
         
         if job_config_obj.save_template:
             self.template_manager.save_job_template(
@@ -233,11 +246,13 @@ class Jet():
 
         # TODO: If follow is True, implement logic to follow job logs, status and events in addition to below pod log streaming.
         if job_config_obj.follow:
+            namespace = self.set_namespace
+            
             # Wait for job pods to be running
             print("Waiting for job pods to be ready...")
             pod_name = wait_for_job_pods_ready(
                             job_name=job_config_obj.metadata.name,
-                            namespace=job_config_obj.metadata.namespace,
+                            namespace=namespace,
                             timeout=300
                         )
 
@@ -248,13 +263,16 @@ class Jet():
             # Stream logs from all pods
             get_logs(
                 pod_name=pod_name,
-                namespace=job_config_obj.metadata.namespace,
+                namespace=namespace,
                 follow=True,
                 timeout=None
             )
 
     def launch_jupyter(self):
         job_config_obj = self.processed_args
+        
+        # Set namespace from args or kubectl context
+        job_config_obj.metadata.namespace = self.set_namespace
         
         pod_port = [item for item in job_config_obj.ports if item['name'] == 'jupyter'][0]['container_port']
         host_port = [item for item in job_config_obj.ports if item['name'] == 'jupyter'][0]['host_port']
@@ -283,6 +301,8 @@ class Jet():
         # TODO: If follow is True, implement logic to follow job logs, status and events in addition to below pod log streaming.
         # BUG: If a job is already finished, but resubmitted with the same name, kubectl will say "configured", which is not an error. So this impl goes on to wait for pod readiness, which will timeout and delete the job. Need to handle that better.
 
+        namespace = self.set_namespace
+        
         try:
             port_forwarder = None
             
@@ -290,13 +310,13 @@ class Jet():
             print("Waiting for Jupyter pod to be ready...")
             jupyter_pod_name = wait_for_job_pods_ready(
                                 job_name=job_config_obj.metadata.name,
-                                namespace=job_config_obj.metadata.namespace,
+                                namespace=namespace,
                                 timeout=300
                             )
             print(f"Jupyter pod \x1b[1;38;2;30;144;255m{jupyter_pod_name}\x1b[0m is running\n")
 
             # Forward port from host to pod
-            pod = init_pod_object(resource=jupyter_pod_name, namespace=job_config_obj.metadata.namespace)
+            pod = init_pod_object(resource=jupyter_pod_name, namespace=namespace)
             port_forwarder = pod.portforward(remote_port=pod_port, local_port=host_port)
             port_forwarder.start()
             print(f"Forwarding from local port {host_port} to pod {jupyter_pod_name} port {pod_port}\n")
@@ -304,7 +324,7 @@ class Jet():
             # Stream Jupyter logs
             get_logs(
                 pod_name=jupyter_pod_name,
-                namespace=job_config_obj.metadata.namespace,
+                namespace=namespace,
                 follow=True,
                 timeout=None if job_config_obj.follow else 15 # No timeout for follow, 15 seconds for non-follow to capture token
             )
@@ -332,7 +352,7 @@ class Jet():
                 delete_resource(
                     name=job_config_obj.metadata.name,
                     resource_type='job',
-                    namespace=job_config_obj.metadata.namespace
+                    namespace=namespace
                 )
             except Exception as delete_exception:
 
@@ -353,7 +373,7 @@ class Jet():
                 delete_resource(
                     name=job_config_obj.metadata.name,
                     resource_type='job',
-                    namespace=job_config_obj.metadata.namespace
+                    namespace=namespace
                 )
             except Exception as delete_exception:
                 print(f"Error deleting Jupyter job/pod: {delete_exception}")
@@ -361,6 +381,9 @@ class Jet():
 
     def launch_debug(self):
         job_config_obj = self.processed_args
+
+        # Set namespace from args or kubectl context
+        job_config_obj.metadata.namespace = self.set_namespace
 
         if job_config_obj.save_template:
             self.template_manager.save_job_template(
@@ -385,12 +408,14 @@ class Jet():
         # TODO: If follow is True, implement logic to follow job logs, status and events.
         # TODO: Exec only if a connect argument is passed. Yet to implement.
 
+        namespace = self.set_namespace
+        
         try:
             # Wait for debug pod to be running
             print("Waiting for debug pod to be ready...")
             debug_pod_name = wait_for_job_pods_ready(
                                 job_name=job_config_obj.metadata.name,
-                                namespace=job_config_obj.metadata.namespace,
+                                namespace=namespace,
                                 timeout=300
                             )
             print(f"Debug pod \x1b[1;38;2;30;144;255m{debug_pod_name}\x1b[0m is running\n")
@@ -399,7 +424,7 @@ class Jet():
             print(f"Connecting to debug pod \x1b[1;38;2;30;144;255m{debug_pod_name}\x1b[0m. Use \x1b[1;33mexit\x1b[0m to terminate the session and delete the debug job.\n")
             exec_into_pod(
                 pod_name=debug_pod_name,
-                namespace=job_config_obj.metadata.namespace,
+                namespace=namespace,
                 shell=job_config_obj.spec.template_spec.containers[0].command.split(' ')[0] # Extract shell from command
             )
 
@@ -408,7 +433,7 @@ class Jet():
             delete_resource(
                 name=job_config_obj.metadata.name,
                 resource_type='job',
-                namespace=job_config_obj.metadata.namespace
+                namespace=namespace
             )
 
         # Catch any exception during debug session creation or keyboard interrupt
@@ -424,7 +449,7 @@ class Jet():
             delete_resource(
                 name=job_config_obj.metadata.name,
                 resource_type='job',
-                namespace=job_config_obj.metadata.namespace
+                namespace=namespace
             )
 
         except Exception as e:
@@ -437,7 +462,7 @@ class Jet():
             delete_resource(
                 name=job_config_obj.metadata.name,
                 resource_type='job',
-                namespace=job_config_obj.metadata.namespace
+                namespace=namespace
             )
 
     def list_templates(self):
@@ -451,26 +476,23 @@ class Jet():
 
     def list_jobs(self):
         """Launch TUI to list and browse jobs."""
-        namespace = self.processed_args.get('namespace') or get_current_namespace()
-        result = run_tui(mode="jobs", namespace=namespace, mouse=False)
+        result = run_tui(mode="jobs", namespace=self.set_namespace, mouse=False)
 
     def list_pods(self):
         """Launch TUI to list and browse pods."""
-        namespace = self.processed_args.get('namespace') or get_current_namespace()
-        result = run_tui(mode="pods", namespace=namespace, mouse=False, job_name=None)
+        result = run_tui(mode="pods", namespace=self.set_namespace, mouse=False, job_name=None)
 
     def get_logs(self):
         """Get logs from a job or pod."""
-        namespace = self.processed_args.get('namespace') or get_current_namespace()
         resource_type = self.processed_args.get('resource_type')
         name = self.processed_args.get('name')
         kubectl_args = self.processed_args.get('kubectl_args', [])
         
         # Build kubectl logs command
         if resource_type == 'job':
-            cmd = ['kubectl', 'logs', f'job/{name}', '-n', namespace] + kubectl_args
+            cmd = ['kubectl', 'logs', f'job/{name}', '-n', self.set_namespace] + kubectl_args
         else:
-            cmd = ['kubectl', 'logs', name, '-n', namespace] + kubectl_args
+            cmd = ['kubectl', 'logs', name, '-n', self.set_namespace] + kubectl_args
         
         try:
             subprocess.run(cmd, check=False)
@@ -491,27 +513,26 @@ class Jet():
 
     def connect(self):
         """Connect (exec) into a pod."""
-        namespace = self.processed_args.get('namespace') or get_current_namespace()
         resource_type = self.processed_args.get('resource_type')
         name = self.processed_args.get('name')
         
         if resource_type == 'pod' and name:
-            shell_type = detect_shell(name, namespace)
-            exec_into_pod(name, namespace, shell_type)
+            shell_type = detect_shell(name, self.set_namespace)
+            exec_into_pod(name, self.set_namespace, shell_type)
         elif resource_type == 'job' and name:
             # For jobs, show TUI to select a pod
             from .tui.k8s import K8sClient
-            k8s = K8sClient(namespace=namespace)
-            pods = k8s.get_pods(namespace=namespace, job_name=name)
+            k8s = K8sClient(namespace=self.set_namespace)
+            pods = k8s.get_pods(namespace=self.set_namespace, job_name=name)
             if pods:
                 if len(pods) == 1:
                     # Only one pod, exec into it directly
                     pod_name = pods[0].name
-                    shell_type = detect_shell(pod_name, namespace)
-                    exec_into_pod(pod_name, namespace, shell_type)
+                    shell_type = detect_shell(pod_name, self.set_namespace)
+                    exec_into_pod(pod_name, self.set_namespace, shell_type)
                 else:
                     # Launch TUI to select pod
-                    result = run_tui(mode="pods", namespace=namespace, job_name=name)
+                    result = run_tui(mode="pods", namespace=self.set_namespace, job_name=name)
                     if result and isinstance(result, tuple):
                         action, pod_name, ns = result
                         if action == "exec":
@@ -519,16 +540,15 @@ class Jet():
             else:
                 print(f"No pods found for job {name}")
         else:
-            run_tui(mode="jobs", namespace=namespace)
+            run_tui(mode="jobs", namespace=self.set_namespace)
 
     def delete(self):
         """Delete a resource."""
-        namespace = self.processed_args.get('namespace') or get_current_namespace()
         resource_type = self.processed_args.get('resource_type')
         name = self.processed_args.get('name')
         kubectl_args = self.processed_args.get('kubectl_args', [])
         
-        delete_resource(name=name, resource_type=resource_type, namespace=namespace, kubectl_args=kubectl_args)
+        delete_resource(name=name, resource_type=resource_type, namespace=self.set_namespace, kubectl_args=kubectl_args)
 
 def run(args, command, subcommand=None):
     # Jet instance

@@ -1133,6 +1133,7 @@ class LogScreen(Screen):
         self.following = follow
         self.k8s = K8sClient(namespace=self.namespace)
         self._log_text: str = ""  # Accumulate log text
+        self._log_worker = None  # Track our own worker
     
     def compose(self) -> ComposeResult:
         """Compose the screen."""
@@ -1146,7 +1147,11 @@ class LogScreen(Screen):
     def on_mount(self) -> None:
         """Start loading logs."""
         self._update_header()
-        self._load_logs()
+        self._log_worker = self._load_logs()
+    
+    def on_resize(self, event) -> None:
+        """Handle terminal resize - update header."""
+        self._update_header()
     
     def _update_header(self) -> None:
         """Update the header."""
@@ -1154,11 +1159,26 @@ class LogScreen(Screen):
         follow_indicator = "📡 follow" if self.following else "📋 static"
         title = f"logs({self.namespace}/{self.resource_name}) [{follow_indicator}]"
         
+        # Build the center content first to calculate padding
+        center_content = f" {title} "
+        
+        # Get available width (terminal width minus corners and padding)
+        try:
+            total_width = self.app.size.width - 4  # Account for corners and some padding
+        except Exception:
+            total_width = 80  # Fallback
+        
+        # Calculate padding on each side
+        center_len = len(center_content)
+        remaining = max(0, total_width - center_len)
+        left_pad = remaining // 2
+        right_pad = remaining - left_pad
+        
         header_text = Text()
         header_text.append("┌", style="bold cyan")
-        header_text.append("─" * 20, style="cyan")
+        header_text.append("─" * left_pad, style="cyan")
         header_text.append(f" {title} ", style="bold white")
-        header_text.append("─" * 20, style="cyan")
+        header_text.append("─" * right_pad, style="cyan")
         header_text.append("┐", style="bold cyan")
         
         header.update(header_text)
@@ -1221,7 +1241,10 @@ class LogScreen(Screen):
     def _cleanup(self) -> None:
         """Clean up resources before exit."""
         self.k8s.kill_active_processes()
-        self.workers.cancel_all()
+        # Only cancel our own worker, not all workers
+        if self._log_worker is not None:
+            self._log_worker.cancel()
+            self._log_worker = None
     
     def action_go_back(self) -> None:
         """Go back to previous screen or quit if at root."""
@@ -1280,6 +1303,7 @@ class DescribeScreen(Screen):
         self.resource_name = resource_name
         self.namespace = namespace or get_current_namespace()
         self.k8s = K8sClient(namespace=self.namespace)
+        self._describe_worker = None  # Track our own worker
     
     def compose(self) -> ComposeResult:
         """Compose the screen."""
@@ -1293,18 +1317,37 @@ class DescribeScreen(Screen):
     def on_mount(self) -> None:
         """Load describe output."""
         self._update_header()
-        self._load_describe()
+        self._describe_worker = self._load_describe()
+    
+    def on_resize(self, event) -> None:
+        """Handle terminal resize - update header."""
+        self._update_header()
     
     def _update_header(self) -> None:
         """Update the header."""
         header = self.query_one("#header", Static)
         title = f"describe {self.resource_type}({self.namespace}/{self.resource_name})"
         
+        # Build the center content first to calculate padding
+        center_content = f" {title} "
+        
+        # Get available width (terminal width minus corners and padding)
+        try:
+            total_width = self.app.size.width - 4  # Account for corners and some padding
+        except Exception:
+            total_width = 80  # Fallback
+        
+        # Calculate padding on each side
+        center_len = len(center_content)
+        remaining = max(0, total_width - center_len)
+        left_pad = remaining // 2
+        right_pad = remaining - left_pad
+        
         header_text = Text()
         header_text.append("┌", style="bold cyan")
-        header_text.append("─" * 15, style="cyan")
+        header_text.append("─" * left_pad, style="cyan")
         header_text.append(f" {title} ", style="bold white")
-        header_text.append("─" * 15, style="cyan")
+        header_text.append("─" * right_pad, style="cyan")
         header_text.append("┐", style="bold cyan")
         
         header.update(header_text)
@@ -1320,13 +1363,19 @@ class DescribeScreen(Screen):
             self.app.call_from_thread(self._set_content, f"Failed to get describe output for {self.resource_type}/{self.resource_name}")
     
     def _set_content(self, text: str) -> None:
-        """Set the describe content."""
+        """Set the describe content and scroll to bottom."""
         content = self.query_one("#describe-content", Static)
         content.update(text)
+        # Scroll to bottom by default (most relevant info like Events is at the bottom)
+        container = self.query_one("#describe-container", VerticalScroll)
+        container.scroll_end(animate=False)
     
     def action_go_back(self) -> None:
         """Go back to previous screen or quit if at root."""
-        self.workers.cancel_all()
+        # Only cancel our own worker, not all workers
+        if self._describe_worker is not None:
+            self._describe_worker.cancel()
+            self._describe_worker = None
         if len(self.app.screen_stack) <= 2:
             self.app.exit()
         else:
@@ -1334,7 +1383,9 @@ class DescribeScreen(Screen):
     
     def action_quit(self) -> None:
         """Quit the application."""
-        self.workers.cancel_all()
+        if self._describe_worker is not None:
+            self._describe_worker.cancel()
+            self._describe_worker = None
         self.app.exit()
     
     def action_scroll_home(self) -> None:

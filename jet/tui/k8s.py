@@ -49,43 +49,17 @@ class JobInfo:
     completion_time: Optional[datetime] = None  # None if still running
 
 
-def format_age(created_at: datetime) -> str:
-    """Format age like kubectl: 45s, 5m9s, 14m, 2h, 27d, etc."""
-    now = datetime.now(timezone.utc)
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    
-    delta = now - created_at
-    total_seconds = int(delta.total_seconds())
-    
-    if total_seconds < 0:
-        return "0s"
-    elif total_seconds < 60:
-        # Under a minute: show seconds
-        return f"{total_seconds}s"
-    elif total_seconds < 600:
-        # Under 10 minutes: show minutes + seconds
-        minutes = total_seconds // 60
-        seconds = total_seconds % 60
-        if seconds > 0:
-            return f"{minutes}m{seconds}s"
-        return f"{minutes}m"
-    elif total_seconds < 3600:
-        # 10-60 minutes: show only minutes
-        minutes = total_seconds // 60
-        return f"{minutes}m"
-    elif total_seconds < 86400:
-        # Under a day: show only hours
-        hours = total_seconds // 3600
-        return f"{hours}h"
-    else:
-        # Days: show only days
-        days = total_seconds // 86400
-        return f"{days}d"
-
-
 def format_duration(start_time: Optional[datetime], completion_time: Optional[datetime]) -> str:
-    """Format job duration like kubectl."""
+    """
+    Format duration like kubectl using Kubernetes HumanDuration logic.
+    
+    Args:
+        start_time: Start time of the duration
+        completion_time: End time of the duration (None means now)
+    
+    Returns:
+        Formatted duration string (e.g., "5m30s", "2d", "3y45d")
+    """
     if not start_time:
         return "<none>"
     
@@ -98,31 +72,62 @@ def format_duration(start_time: Optional[datetime], completion_time: Optional[da
     delta = end_time - start_time
     total_seconds = int(delta.total_seconds())
     
-    if total_seconds < 0:
-        return "<none>"
-    elif total_seconds < 60:
-        # Under a minute: show seconds
+    if total_seconds < -1:
+        return "<invalid>"
+    elif total_seconds < 0:
+        return "0s"
+    elif total_seconds < 120:  # < 2 minutes
         return f"{total_seconds}s"
-    elif total_seconds < 600:
-        # Under 10 minutes: show minutes + seconds
-        minutes = total_seconds // 60
+    
+    minutes = total_seconds // 60
+    if minutes < 10:  # 2-10 minutes
         seconds = total_seconds % 60
         if seconds > 0:
             return f"{minutes}m{seconds}s"
         return f"{minutes}m"
-    elif total_seconds < 3600:
-        # 10-60 minutes: show only minutes
-        minutes = total_seconds // 60
+    elif minutes < 180:  # 10-180 minutes (3 hours)
         return f"{minutes}m"
-    elif total_seconds < 86400:
-        # Under a day: show only hours
-        hours = total_seconds // 3600
+    
+    hours = total_seconds // 3600
+    if hours < 8:  # 3-8 hours
+        mins = (total_seconds % 3600) // 60
+        if mins > 0:
+            return f"{hours}h{mins}m"
         return f"{hours}h"
-    else:
-        # Days: show only days
-        days = total_seconds // 86400
+    elif hours < 48:  # 8-48 hours
+        return f"{hours}h"
+    elif hours < 192:  # 2-8 days
+        days = hours // 24
+        remaining_hours = hours % 24
+        if remaining_hours > 0:
+            return f"{days}d{remaining_hours}h"
         return f"{days}d"
+    elif hours < 24 * 365 * 2:  # 8 days - 2 years
+        return f"{hours // 24}d"
+    elif hours < 24 * 365 * 8:  # 2-8 years
+        days = hours // 24
+        years = days // 365
+        remaining_days = days % 365
+        if remaining_days > 0:
+            return f"{years}y{remaining_days}d"
+        return f"{years}y"
+    else:  # 8+ years
+        years = hours // (24 * 365)
+        return f"{years}y"
 
+def format_age(created_at: datetime) -> str:
+    """
+    Format age (time since creation) like kubectl.
+    
+    This is a convenience wrapper around format_duration where the end time is "now".
+    
+    Args:
+        created_at: Creation timestamp
+    
+    Returns:
+        Formatted age string (e.g., "5m30s", "2d", "3y45d")
+    """
+    return format_duration(created_at, None)
 
 def parse_datetime(dt_str: Optional[str]) -> Optional[datetime]:
     """Parse Kubernetes datetime string."""
