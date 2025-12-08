@@ -154,9 +154,23 @@ class ProcessArguments:
         - jet logs job <job_name>                   # explicitly get job logs
         - jet logs <job_name> -f                    # with kubectl args
         - jet logs pod <pod_name> --tail=100        # pod with kubectl args
+        - jet logs <job_name> -n namespace          # with namespace
         """
-        args_list = self.args.logs_args if hasattr(self.args, 'logs_args') else []
-        namespace = self.args.namespace if hasattr(self.args, 'namespace') and self.args.namespace else None
+        args_list = list(self.args.logs_args) if hasattr(self.args, 'logs_args') else []
+        
+        # Extract namespace from args if present (-n or --namespace)
+        namespace = None
+        i = 0
+        while i < len(args_list):
+            if args_list[i] in ['-n', '--namespace'] and i + 1 < len(args_list):
+                namespace = args_list[i + 1]
+                args_list.pop(i)  # Remove -n/--namespace
+                args_list.pop(i)  # Remove the namespace value
+            elif args_list[i].startswith('--namespace='):
+                namespace = args_list[i].split('=', 1)[1]
+                args_list.pop(i)
+            else:
+                i += 1
         
         kubectl_args = []
         resource_type = 'job'  # Default to job
@@ -248,9 +262,23 @@ class ProcessArguments:
         - jet delete job <job_name>                  -> explicitly delete job
         - jet delete <job_name> --force --grace-period=0  -> with kubectl args
         - jet delete pod <pod_name> --force          -> pod with kubectl args
+        - jet delete <job_name> -n namespace         -> with namespace
         """
-        args_list = self.args.delete_args if hasattr(self.args, 'delete_args') else []
-        namespace = self.args.namespace if hasattr(self.args, 'namespace') and self.args.namespace else None
+        args_list = list(self.args.delete_args) if hasattr(self.args, 'delete_args') else []
+        
+        # Extract namespace from args if present (-n or --namespace)
+        namespace = None
+        i = 0
+        while i < len(args_list):
+            if args_list[i] in ['-n', '--namespace'] and i + 1 < len(args_list):
+                namespace = args_list[i + 1]
+                args_list.pop(i)  # Remove -n/--namespace
+                args_list.pop(i)  # Remove the namespace value
+            elif args_list[i].startswith('--namespace='):
+                namespace = args_list[i].split('=', 1)[1]
+                args_list.pop(i)
+            else:
+                i += 1
         
         resource_type = None
         name = None

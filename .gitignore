@@ -210,3 +210,4 @@ __marimo__/
 .DS_Store
 thumbs.db
 logs/
+*.mp4

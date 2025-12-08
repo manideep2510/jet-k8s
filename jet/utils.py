@@ -2,6 +2,7 @@ import logging
 import subprocess
 import yaml
 import time
+import os
 import kr8s
 from kr8s.objects import Job, Pod
 import json
@@ -15,24 +16,102 @@ import textwrap
 from .defaults import JET_HOME
 
 
-def get_current_namespace():
+def get_kubeconfig():
+    """
+    Get the merged kubeconfig following kubectl's precedence rules.
+    
+    Resolution order (matches kubectl exactly):
+    1. $KUBECONFIG environment variable (colon-separated list of files, merged in order)
+    2. ~/.kube/config
+    
+    Returns:
+        dict: Merged kubeconfig dictionary, or empty dict if no config found.
+    """
+    kubeconfig_env = os.environ.get("KUBECONFIG", "")
+    
+    if kubeconfig_env:
+        # KUBECONFIG can be colon-separated list of files (or semicolon on Windows)
+        separator = ";" if os.name == "nt" else ":"
+        config_paths = [Path(p.strip()).expanduser() for p in kubeconfig_env.split(separator) if p.strip()]
+    else:
+        # Default: ~/.kube/config
+        config_paths = [Path.home() / ".kube" / "config"]
+    
+    # Merge configs in order (later files override earlier for conflicts,
+    # but kubectl merges lists like contexts/clusters/users)
+    merged = {
+        "clusters": [],
+        "contexts": [],
+        "users": [],
+        "current-context": None,
+    }
+    
+    seen_clusters = set()
+    seen_contexts = set()
+    seen_users = set()
+    
+    for config_path in config_paths:
+        if not config_path.exists():
+            continue
+        try:
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            
+            # First file's current-context wins (if set)
+            if merged["current-context"] is None and cfg.get("current-context"):
+                merged["current-context"] = cfg["current-context"]
+            
+            # Merge clusters (first occurrence of a name wins)
+            for cluster in cfg.get("clusters", []):
+                name = cluster.get("name")
+                if name and name not in seen_clusters:
+                    merged["clusters"].append(cluster)
+                    seen_clusters.add(name)
+            
+            # Merge contexts (first occurrence of a name wins)
+            for context in cfg.get("contexts", []):
+                name = context.get("name")
+                if name and name not in seen_contexts:
+                    merged["contexts"].append(context)
+                    seen_contexts.add(name)
+            
+            # Merge users (first occurrence of a name wins)
+            for user in cfg.get("users", []):
+                name = user.get("name")
+                if name and name not in seen_users:
+                    merged["users"].append(user)
+                    seen_users.add(name)
+                    
+        except Exception:
+            continue
+    
+    return merged
+
+def get_current_namespace(kubeconfig=None):
     """
     Get the namespace from the current kubectl context.
     Returns the context's namespace, or 'default' if none is set.
+    
+    Args:
+        kubeconfig: Optional pre-loaded kubeconfig dict. If None, loads via get_kubeconfig().
+    
+    Returns:
+        str: The current namespace from kubectl context, or 'default'.
     """
     try:
-        result = subprocess.run(
-            ["kubectl", "config", "view", "--minify", "-o", "jsonpath={..namespace}"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        namespace = result.stdout.strip()
-        # If no namespace is set in context, kubectl returns empty string
-        return namespace if namespace else "default"
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
-        return "default"
-
+        cfg = kubeconfig if kubeconfig is not None else get_kubeconfig()
+        
+        current_context = cfg.get("current-context")
+        if not current_context:
+            return "default"
+        
+        for ctx in cfg.get("contexts", []):
+            if ctx.get("name") == current_context:
+                return ctx.get("context", {}).get("namespace") or "default"
+    except Exception:
+        pass
+    
+    return "default"
 
 def print_job_yaml(job_yaml, dry_run=False, verbose=False):
     """
@@ -101,17 +180,17 @@ def submit_job(job_config, dry_run=False, verbose=False):
     except Exception as e:
         raise Exception(f"Error submitting job with subprocess: {e}")
 
-def delete_resource(name, resource_type, namespace='default', kubectl_args=None):
+def delete_resource(name, resource_type, namespace=None, kubectl_args=None):
     """
     Delete a Kubernetes job using kubectl.
 
     Args:
         name (str): Name of the resource.
         resource_type (str): Type of the resource (e.g., 'job', 'pod').
-        namespace (str): Kubernetes namespace.
+        namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
         kubectl_args (list): Additional arguments to pass to kubectl delete.
     """
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
     kubectl_args = kubectl_args if kubectl_args else []
 
     try:
@@ -131,17 +210,17 @@ def delete_resource(name, resource_type, namespace='default', kubectl_args=None)
         error_msg = e.stderr.strip() if e.stderr else str(e)
         print(f"Error deleting {resource_type}/{name}: {error_msg}")
 
-def forward_port_background(name, resource_type, host_port, pod_port, namespace='default'):
+def forward_port_background(name, resource_type, host_port, pod_port, namespace=None):
     """
     Port forward a local port to a pod port using kubectl.
 
     Args:
         pod_name (str): Name of the pod.
-        namespace (str): Kubernetes namespace.
+        namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
         local_port (int): Local port number.
         pod_port (int): Pod port number.
     """
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
 
     try:
         logging.info(f"Port forwarding local port {host_port} to {resource_type}/{name} port {pod_port} in namespace {namespace}...")
@@ -185,17 +264,17 @@ def init_pod_object(resource, namespace=None, **kwargs):
     except Exception as e:
         raise Exception(f"Error initializing Pod object for {resource} in namespace {namespace}: {e}")
 
-def get_logs(pod_name, namespace, follow=True, timeout=None):
+def get_logs(pod_name, namespace=None, follow=True, timeout=None):
     """
     Follow logs of a pod using kr8s.
 
     Args:
         pod_name (str): Name of the pod.
-        namespace (str): Kubernetes namespace.
+        namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
         follow (bool): Whether to follow the logs.
         timeout (int): Timeout in seconds for log streaming.
     """
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
 
     # Initialize pod object using kr8s
     pod = init_pod_object(pod_name, namespace)
@@ -240,19 +319,19 @@ def get_logs(pod_name, namespace, follow=True, timeout=None):
             print("\nKeyboard interrupt received. Stopping log stream. But the job/pod will continue to run.")
             break
 
-def get_job_pod_names(job_name, namespace='default', field_selector=None):
+def get_job_pod_names(job_name, namespace=None, field_selector=None):
     """
     Get all active pod names associated with a Job (excluding terminating pods).
     
     Args:
         job_name (str): Name of the Job
-        namespace (str): Kubernetes namespace
+        namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
         field_selector (str): Additional field selector
     
     Returns:
         list: List of active pod names, sorted by creation time (newest first)
     """
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
 
     try:
         # Get pods as JSON to filter out terminating ones
@@ -301,18 +380,18 @@ def get_job_pod_names(job_name, namespace='default', field_selector=None):
         logging.error(f"Error parsing pod data for job {job_name}: {e}")
         return []
 
-def wait_for_job_pods_ready(job_name, namespace='default', timeout=300):
+def wait_for_job_pods_ready(job_name, namespace=None, timeout=300):
     """
     Wait for Job to have active pods, then wait for those pods to be ready.
     Note: This function only waits for the first active pod.
 
     Args:
         job_name (str): Name of the job.
-        namespace (str): Kubernetes namespace.
+        namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
         timeout (int): Maximum time to wait in seconds.
     """
 
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
 
     try:
         # List all pods for the job
@@ -348,16 +427,16 @@ def wait_for_job_pods_ready(job_name, namespace='default', timeout=300):
         return None
         
 
-def wait_for_pod_ready(pod_name, namespace='default', timeout=300):
+def wait_for_pod_ready(pod_name, namespace=None, timeout=300):
     """
     Wait for a Kubernetes pod to be in the 'Running' state.
 
     Args:
         pod_name (str): Name of the pod.
-        namespace (str): Kubernetes namespace.
+        namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
     """
 
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
 
     try:
         # pod = Pod(resource=pod_name, namespace=namespace)
@@ -406,10 +485,10 @@ def wait_for_pod_ready(pod_name, namespace='default', timeout=300):
         print(f"Error getting pod state: {e}")
         return None
 
-def get_shell_from_container_spec(pod_name, namespace='default', container_name=None):
-    """Check if container spec specifies a shell"""
+def get_shell_from_container_spec(pod_name, namespace=None, container_name=None):
+    """Check if container spec specifies a shell. If namespace is None, uses current kubectl context namespace."""
     
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
     
     try:
         cmd = ["kubectl", "get", "pod", pod_name, "-n", namespace, "-o", "json"]
@@ -450,10 +529,10 @@ def get_shell_from_container_spec(pod_name, namespace='default', container_name=
         return None
 
 
-def detect_shell(pod_name, namespace='default', container_name=None):
-    """Detect best available shell"""
+def detect_shell(pod_name, namespace=None, container_name=None):
+    """Detect best available shell. If namespace is None, uses current kubectl context namespace."""
 
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
     
     # First, check if spec tells us
     spec_shell = get_shell_from_container_spec(pod_name, namespace, container_name)
@@ -470,11 +549,11 @@ def detect_shell(pod_name, namespace='default', container_name=None):
     for shell in shells:
         try:
             result = subprocess.run(
-                base_cmd + ["--", "test", "-f", shell],
+                base_cmd + ["--", "test", "-x", shell],
                 capture_output=True,
                 timeout=2
             )
-            print(f"Probing for shell {shell}, result code: {result}")
+            logging.debug(f"Probing for shell {shell}, result code: {result}")
             if result.returncode == 0:
                 return shell
         except Exception:
@@ -482,18 +561,18 @@ def detect_shell(pod_name, namespace='default', container_name=None):
     
     return "/bin/sh"
 
-def exec_into_pod(pod_name, namespace='default', shell='/bin/sh', container_name=None):
+def exec_into_pod(pod_name, namespace=None, shell='/bin/sh', container_name=None):
     """
     Exec into a Kubernetes pod using kubectl.
 
     Args:
         pod_name (str): Name of the pod.
-        namespace (str): Kubernetes namespace.
+        namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
         shell (str): Shell to use inside the pod.
         container_name (str, optional): Container name for multi-container pods.
     """
 
-    namespace = namespace if namespace else 'default'
+    namespace = namespace if namespace else get_current_namespace()
     
     try:
         logging.info(f"Executing into pod {pod_name} in namespace {namespace} with shell {shell}...")
@@ -515,13 +594,13 @@ def exec_into_pod(pod_name, namespace='default', shell='/bin/sh', container_name
         
         # Exit code 126 = shell/command not executable
         if result.returncode == 126:
-            raise Exception(f"Shell {shell} is not executable in pod {pod_name}.")
+            raise Exception(f"Shell {shell} is not executable in pod {pod_name}")
         
         # Exit code 127 = shell/command not found
         if result.returncode == 127:
-            raise Exception(f"Shell {shell} not found in pod {pod_name}.")
+            raise Exception(f"Shell {shell} not found in pod {pod_name}")
         
-        elif result.returncode != 0:
+        if result.returncode != 0:
             raise Exception(f"kubectl exec failed with exit code {result.returncode}")
         
     except KeyboardInterrupt:
@@ -607,7 +686,7 @@ class TemplateManager():
 
         if not matches:
             raise ValueError(
-                f"No templates named {job_name_stem} found in {self.templates_dir}. "
+                f"No templates named {job_name_stem} found in {self.templates_dir} for job type {job_type}. "
                 "Provide a valid template name saved in ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/ or a full path to a job yaml file."
             )
 
@@ -737,7 +816,7 @@ class TemplateManager():
         )
 
         if not templates:
-            print("No templates found.")
+            print("No templates found")
             return
 
         # If verbose, print all paths and mark latest
