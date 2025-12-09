@@ -29,6 +29,7 @@ jet launch debug my-debug \
   --shell /bin/zsh
 ```
 
+> [!TIP]
 > Default is `/bin/bash`. If using zsh, you may want to mount your home directory for your zsh configuration. This will also give you shell history and other settings:
 
 ```bash

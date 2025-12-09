@@ -442,10 +442,12 @@ class ProcessArguments:
         if self.args.namespace:
             job_config.metadata.namespace = self.args.namespace
         
-        # Priority
-        # TODO: Create a separate priority class for jupyter and debug jobs. For now, using 'train' priority class.
-        priority = self.args.priority if hasattr(self.args, 'priority') and self.args.priority else job_config.metadata.labels.get('priorityClassName', DEFAULT_PRIORITY)
-        job_config.metadata.labels['priorityClassName'] = priority
+        # Priority - use standard K8s priorityClassName in pod spec
+        # Only set if explicitly provided via CLI or template
+        if hasattr(self.args, 'priority') and self.args.priority:
+            job_config.spec.template_spec.priority_class_name = self.args.priority
+        elif not job_config.spec.template_spec.priority_class_name and DEFAULT_PRIORITY:
+            job_config.spec.template_spec.priority_class_name = DEFAULT_PRIORITY
         job_config.metadata.labels['job-type'] = job_type
 
         # Job Spec
@@ -461,9 +463,11 @@ class ProcessArguments:
         # Pod Spec
         pod_spec = job_config.spec.template_spec
         
+        # Scheduler - only set if explicitly provided via CLI, template, or default
+        # If None, Kubernetes uses its default scheduler
         if hasattr(self.args, 'scheduler') and self.args.scheduler:
             pod_spec.scheduler = self.args.scheduler
-        elif not pod_spec.scheduler:
+        elif not pod_spec.scheduler and DEFAULT_SCHEDULER:
             pod_spec.scheduler = DEFAULT_SCHEDULER
 
         if hasattr(self.args, 'restart_policy') and self.args.restart_policy:
