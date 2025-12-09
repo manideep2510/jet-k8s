@@ -3,8 +3,8 @@ from pathlib import Path
 
 DEFAULT_CPU = '1:1'
 DEFAULT_MEMORY = '4Gi:4Gi'
-DEFAULT_SCHEDULER = 'kai-scheduler'
-DEFAULT_PRIORITY = 'train'
+DEFAULT_SCHEDULER = None  # None uses Kubernetes default scheduler
+DEFAULT_PRIORITY = None  # None means no priority class is set
 DEFAULT_RESTART_POLICY = 'Never'
 DEFAULT_JUPYTER_PORT = '8888'
 DEFAULT_BACKOFF_LIMIT = None  # 6 retries by default

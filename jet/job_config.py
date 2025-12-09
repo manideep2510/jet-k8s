@@ -65,6 +65,7 @@ class ContainerSpec:
 @dataclass
 class PodSpec:
     scheduler: Optional[str] = None
+    priority_class_name: Optional[str] = None  # Standard K8s priority class
     restart_policy: str = 'Never'
     node_selectors: Dict[str, str] = field(default_factory=dict)
     active_deadline_seconds: Optional[int] = None
@@ -205,6 +206,7 @@ class JobConfig:
 
         pod_spec = PodSpec(
             scheduler=template_spec_data.get('schedulerName'),
+            priority_class_name=template_spec_data.get('priorityClassName'),
             restart_policy=template_spec_data.get('restartPolicy', 'Never'),
             node_selectors=template_spec_data.get('nodeSelector', {}),
             active_deadline_seconds=template_spec_data.get('activeDeadlineSeconds'),
@@ -284,6 +286,8 @@ class JobConfig:
         pod_spec_dict = {}
         if self.spec.template_spec.scheduler:
             pod_spec_dict['schedulerName'] = self.spec.template_spec.scheduler
+        if self.spec.template_spec.priority_class_name:
+            pod_spec_dict['priorityClassName'] = self.spec.template_spec.priority_class_name
         pod_spec_dict['restartPolicy'] = self.spec.template_spec.restart_policy
         if self.spec.template_spec.node_selectors:
             pod_spec_dict['nodeSelector'] = self.spec.template_spec.node_selectors

@@ -26,6 +26,7 @@ Perfect for ML engineers and researchers who want to leverage Kubernetes for ML 
 
 ## Demos 
 
+> [!TIP]
 > Click the GIFs to view the demos on Asciinema player with media controls.
 
 ### Submitting Jobs
@@ -86,26 +87,23 @@ Some key reasons for using Kubernetes Jobs for ML workloads:
 1. Jet currently supports some of the frequently used job and pod spec configurations through command-line arguments. If you have specific requirements not currently supported, please raise an issue or contribute a PR to add the necessary features.
 
 2. Jet currently supports only Kubernetes clusters with NVIDIA GPU nodes.
-
-3. Jet currently supports only KAI-scheduler for job scheduling.
    
-4. Pod's `restartPolicy` is set to `Never` for all jobs types by default and job's themselves have `backoffLimit` set to None (so defaults to Kubernetes defaults of 6). This configuration is to ensure that when the containers in pods fail, they are not restarted indefinitely on the same resources, but instead rescheduled on different resources by the job controller. You can override this using the `--restart-policy` argument.
+3. Pod's `restartPolicy` is set to `Never` for all jobs types by default and job's themselves have `backoffLimit` set to None (so defaults to Kubernetes defaults of 6). This configuration is to ensure that when the containers in pods fail, they are not restarted indefinitely on the same resources, but instead rescheduled on different resources by the job controller. You can override this using the `--restart-policy` argument.
 
-5. The argument `--gpu-type` is implemented using node selectors. Ensure that your cluster nodes are labeled appropriately for the GPU types you intend to use.
+4. The argument `--gpu-type` is implemented using node selectors. Ensure that your cluster nodes are labeled appropriately for the GPU types you intend to use.
 For example, to label a node with an A100 GPU, you can use:
    ```bash
    kubectl label nodes <node-name> gpu-type=a100
    ```
 
-6. The pod security context is set to run containers with the same user and group ID as the user executing the `jet` command. This is to ensure proper file permission handling when mounting host directories or volumes. If your use case requires running containers with different user/group IDs, please raise an issue or contribute a PR to make this configurable.
+5. The pod security context is set to run containers with the same user and group ID as the user executing the `jet` command. This is to ensure proper file permission handling when mounting host directories or volumes. If your use case requires running containers with different user/group IDs, please raise an issue or contribute a PR to make this configurable.
 
-7. The `--pyenv` argument mounts a Python virtual environment from the host into the container at the same path and adjusts the containers' `PATH` environment variable accordingly. Ensure that the virtual environment is compatible with the container's image.
+6. The `--pyenv` argument mounts a Python virtual environment from the host into the container at the same path and adjusts the containers' `PATH` environment variable accordingly. Ensure that the virtual environment is compatible with the container's image.
 
 ## TODOs:
 
-- [ ] Add support for fractional GPUs using HAMi plugin for KAI-scheduler (In dev: [KAI-scheduler #60](https://github.com/NVIDIA/KAI-Scheduler/pull/60)).
+- [ ] Add support for fractional GPUs using HAMi plugin (In dev: [KAI-scheduler #60](https://github.com/NVIDIA/KAI-Scheduler/pull/60)).
 - [ ] Add support for other accelerator types such as AMDs and TPUs.
-- [ ] Disentangle from KAI-scheduler to support other similar schedulers or default K8s scheduler.
 - [ ] Evaluate support for other kubernetes schedulers such as Volcano.
 - [ ] Ability to submit jobs with parallism and gang scheduling for usecases such as multi-node training jobs.
 - [ ] Add support for job dependencies and chaining.
