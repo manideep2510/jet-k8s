@@ -501,10 +501,13 @@ class Jet():
 
     def describe(self):
         """Use kubectl to describe a resource"""
+        resource_type = self.processed_args.get('resource_type')
+        name = self.processed_args.get('name')
+        namespace = self.processed_args.get('namespace') or self.set_namespace
         kubectl_args = self.processed_args.get('kubectl_args', [])
         
         # Build kubectl describe command
-        cmd = ['kubectl', 'describe'] + kubectl_args
+        cmd = ['kubectl', 'describe', resource_type, name, '-n', namespace] + kubectl_args
         
         try:
             subprocess.run(cmd, check=False)
@@ -612,9 +615,25 @@ def cli():
     if args.jet_command == 'delete' and (not hasattr(args, 'delete_args') or not args.delete_args):
         return print_help_and_exit(parser, 'delete')
 
-    # Handle case when 'describe' is provided but no arguments
-    if args.jet_command == 'describe' and (not hasattr(args, 'describe_args') or not args.describe_args):
-        return print_help_and_exit(parser, 'describe')
+    # Handle case when 'describe' is provided but insufficient arguments (need resource_type and name)
+    if args.jet_command == 'describe':
+        describe_args = args.describe_args if hasattr(args, 'describe_args') else []
+        # Filter out namespace flags to count actual positional args
+        positional_args = []
+        i = 0
+        while i < len(describe_args):
+            if describe_args[i] in ['-n', '--namespace'] and i + 1 < len(describe_args):
+                i += 2  # Skip flag and value
+            elif describe_args[i].startswith('--namespace='):
+                i += 1  # Skip flag
+            elif describe_args[i].startswith('-'):
+                i += 1  # Skip other flags
+            else:
+                positional_args.append(describe_args[i])
+                i += 1
+        # Need at least 2 positional args: resource_type and name
+        if len(positional_args) < 2:
+            return print_help_and_exit(parser, 'describe')
 
     # Process arguments
     processor = ProcessArguments(args)

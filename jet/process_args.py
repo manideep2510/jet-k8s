@@ -213,10 +213,53 @@ class ProcessArguments:
         }
 
     def _process_describe(self):
-        """Process describe command arguments."""
-        # Pass through all arguments to kubectl describe
-        kubectl_args = self.args.describe_args if hasattr(self.args, 'describe_args') else []
+        """Process describe command arguments.
+        
+        Supports formats:
+        - jet describe job <job_name>                # describe job
+        - jet describe pod <pod_name>                # describe pod
+        - jet describe job <job_name> -n namespace   # job with namespace
+        - jet describe pod <pod_name> -n namespace   # pod with namespace
+        
+        Note: Resource type (job/pod) is required.
+        """
+        args_list = list(self.args.describe_args) if hasattr(self.args, 'describe_args') else []
+        
+        # Extract namespace from args if present (-n or --namespace)
+        namespace = None
+        i = 0
+        while i < len(args_list):
+            if args_list[i] in ['-n', '--namespace'] and i + 1 < len(args_list):
+                namespace = args_list[i + 1]
+                args_list.pop(i)  # Remove -n/--namespace
+                args_list.pop(i)  # Remove the namespace value
+            elif args_list[i].startswith('--namespace='):
+                namespace = args_list[i].split('=', 1)[1]
+                args_list.pop(i)
+            else:
+                i += 1
+        
+        resource_type = None
+        name = None
+        kubectl_args = []
+
+        if len(args_list) >= 2:
+            # jet describe <resource_type> <name> [kubectl_args...]
+            first_arg = args_list[0].lower()
+            if first_arg in ['job', 'pod', 'jobs', 'pods', 'jo', 'po', 'j', 'p']:
+                # Normalize resource type
+                if first_arg in ['pod', 'pods', 'po', 'p']:
+                    resource_type = 'pod'
+                else:
+                    resource_type = 'job'
+                name = args_list[1]
+                # Remaining args after resource_type and name are kubectl args
+                kubectl_args = args_list[2:] if len(args_list) > 2 else []
+            
         return {
+            'resource_type': resource_type,
+            'name': name,
+            'namespace': namespace,
             'kubectl_args': kubectl_args
         }
 
