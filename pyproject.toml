@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jet-k8s"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
     { name = "Manideep Kolla", email = "manideep2510@gmail.com" }
 ]
