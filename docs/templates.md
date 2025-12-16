@@ -78,7 +78,7 @@ jet launch jupyter my-jupyter-template \
 ```bash
 jet launch debug my-debug-template \
   --image my-image \
-  --shell /bin/zsh \
+  --shell /usr/bin/zsh \
   --mount-home \
   --gpu 1 \
   --save-template

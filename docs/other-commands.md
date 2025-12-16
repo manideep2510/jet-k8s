@@ -167,7 +167,7 @@ Jet automatically selects a shell in the following order:
 
 1. The shell specified when creating the container (via `--shell`)
 2. `/bin/bash` (if available in the image)
-3. `/bin/zsh` (if available)
+3. `/usr/bin/zsh` (if available)
 4. `/usr/bin/fish` (if available)
 5. `/bin/sh` (fallback)
 

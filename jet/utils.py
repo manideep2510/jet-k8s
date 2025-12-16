@@ -519,7 +519,7 @@ def get_shell_from_container_spec(pod_name, namespace=None, container_name=None)
                 if "bash" in str(cmd_part):
                     return "/bin/bash"
                 elif "zsh" in str(cmd_part):
-                    return "/bin/zsh"
+                    return "/usr/bin/zsh"
                 elif str(cmd_part) in ["/bin/sh", "sh"]:
                     return "/bin/sh"
         
@@ -544,7 +544,7 @@ def detect_shell(pod_name, namespace=None, container_name=None):
     if container_name:
         base_cmd += ["-c", container_name]
     
-    shells = ["/bin/bash", "/bin/zsh", "/usr/bin/fish", "/bin/sh"]
+    shells = ["/bin/bash", "/usr/bin/zsh", "/usr/bin/fish", "/bin/sh"]
     
     for shell in shells:
         try:
