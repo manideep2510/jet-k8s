@@ -26,7 +26,7 @@ Choose which shell to use (must be installed in the image):
 ```bash
 jet launch debug my-debug \
   --image my-ml-image --duration 3600 \
-  --shell /bin/zsh
+  --shell /usr/bin/zsh
 ```
 
 > [!TIP]
@@ -35,7 +35,7 @@ jet launch debug my-debug \
 ```bash
 jet launch debug my-debug \
   --image my-ml-image --duration 3600 \
-  --shell /bin/zsh \
+  --shell /usr/bin/zsh \
   --mount-home
 ```
 
@@ -84,7 +84,7 @@ Mount your entire home directory for full access to your files and configuration
 jet launch debug my-debug \
   --image my-ml-image --duration 3600 \
   --mount-home \
-  --shell /bin/zsh
+  --shell /usr/bin/zsh
 ```
 
 This is useful for:
@@ -112,7 +112,7 @@ jet launch debug my-ml-debug \
   --image my-ml-image:latest \
   --image-pull-policy IfNotPresent \
   --namespace ml-debug \
-  --shell /bin/zsh \
+  --shell /usr/bin/zsh \
   --pyenv /home/user/envs/ml-env \
   --duration 3600 \
   --volume /home/user/code:/mnt/code \
@@ -184,7 +184,7 @@ Save your debug configuration as a reusable template:
 ```bash
 jet launch debug my-debug-template \
   --image my-ml-image --duration 3600 \
-  --shell /bin/zsh \
+  --shell /usr/bin/zsh \
   --mount-home \
   --gpu 1 \
   --save-template
