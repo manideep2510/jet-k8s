@@ -98,7 +98,15 @@ For example, to label a node with an A100 GPU, you can use:
 
 5. The pod security context is set to run containers with the same user and group ID as the user executing the `jet` command. This is to ensure proper file permission handling when mounting host directories or volumes. If your use case requires running containers with different user/group IDs, please raise an issue or contribute a PR to make this configurable.
 
-6. The `--pyenv` argument mounts a Python virtual environment from the host into the container at the same path and adjusts the containers' `PATH` environment variable accordingly. Ensure that the virtual environment is compatible with the container's image.
+6. The `--pyenv` argument mounts a Python virtual environment from the host into the container at the same path and updates the container's `PATH` accordingly.
+
+   - **Requirements:**
+
+      - **Shared storage**: The venv directory must be accessible at the same path on the node where the pod runs. This works automatically with single-node clusters or shared storage (NFS, BeeGFS), but may not work on multi-node clusters without shared storage.
+
+      - **Python compatibility**: The venv's Python executable (read from `pyvenv.cfg`) must be available inside the container. This works if:
+         - The container image has Python installed at the same path (e.g., `/usr/bin/python3.x` for system Python venvs), or
+         - The venv includes its own Python rather than system Python (e.g., venvs created with `uv` or `conda` using a specific Python version).
 
 ## TODOs:
 

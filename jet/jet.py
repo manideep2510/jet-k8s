@@ -257,6 +257,10 @@ class Jet():
                             namespace=namespace,
                             timeout=300
                         )
+            
+            if not pod_name:
+                print("\nNo running pods found for the job")
+                return
 
             print(f"Job pod \x1b[1;38;2;30;144;255m{pod_name}\x1b[0m is running\n")
 
@@ -315,6 +319,11 @@ class Jet():
                                 namespace=namespace,
                                 timeout=300
                             )
+
+            if not jupyter_pod_name:
+                print("\nNo running pods found for the job")
+                return
+
             print(f"Jupyter pod \x1b[1;38;2;30;144;255m{jupyter_pod_name}\x1b[0m is running\n")
 
             # Forward port from host to pod
@@ -420,6 +429,11 @@ class Jet():
                                 namespace=namespace,
                                 timeout=300
                             )
+            
+            if not debug_pod_name:
+                print("\nNo running pods found for the job")
+                return
+
             print(f"Debug pod \x1b[1;38;2;30;144;255m{debug_pod_name}\x1b[0m is running\n")
 
             # Exec into the debug pod with the specified shell
