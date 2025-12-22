@@ -8,7 +8,7 @@ from .process_args import ProcessArguments
 from .tui.app import run_tui
 import time
 import signal
-from .defaults import JET_HOME
+from .defaults import JET_HOME, DEFAULT_JOB_POD_WAITING_TIMEOUT
 
 
 def get_kubectl_help(command):
@@ -255,7 +255,7 @@ class Jet():
             pod_name = wait_for_job_pods_ready(
                             job_name=job_config_obj.metadata.name,
                             namespace=namespace,
-                            timeout=300
+                            timeout=DEFAULT_JOB_POD_WAITING_TIMEOUT
                         )
             
             if not pod_name:
@@ -317,12 +317,11 @@ class Jet():
             jupyter_pod_name = wait_for_job_pods_ready(
                                 job_name=job_config_obj.metadata.name,
                                 namespace=namespace,
-                                timeout=300
+                                timeout=DEFAULT_JOB_POD_WAITING_TIMEOUT
                             )
 
             if not jupyter_pod_name:
-                print("\nNo running pods found for the job")
-                return
+                raise Exception("No running pods found for the job")
 
             print(f"Jupyter pod \x1b[1;38;2;30;144;255m{jupyter_pod_name}\x1b[0m is running\n")
 
@@ -388,7 +387,6 @@ class Jet():
                 )
             except Exception as delete_exception:
                 print(f"Error deleting Jupyter job/pod: {delete_exception}")
-            raise e
 
     def launch_debug(self):
         job_config_obj = self.processed_args
@@ -427,12 +425,11 @@ class Jet():
             debug_pod_name = wait_for_job_pods_ready(
                                 job_name=job_config_obj.metadata.name,
                                 namespace=namespace,
-                                timeout=300
+                                timeout=DEFAULT_JOB_POD_WAITING_TIMEOUT
                             )
             
             if not debug_pod_name:
-                print("\nNo running pods found for the job")
-                return
+                raise Exception("No running pods found for the job")
 
             print(f"Debug pod \x1b[1;38;2;30;144;255m{debug_pod_name}\x1b[0m is running\n")
 

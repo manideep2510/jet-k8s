@@ -329,6 +329,10 @@ def get_logs(pod_name, namespace=None, follow=True, timeout=None):
             print("\nKeyboard interrupt received. Stopping log stream. But the job/pod will continue to run.")
             break
 
+        except Exception as e:
+            logging.error(f"Error streaming logs for pod {pod_name}: {e}")
+            break
+
 def get_job_pod_names(job_name, namespace=None, field_selector=None):
     """
     Get all active pod names associated with a Job (excluding terminating pods).
@@ -506,10 +510,17 @@ def _handle_pod_status(pod, last_reported_reasons, namespace=None, pods_events_c
     if phase not in ('Running', 'Succeeded'):
         if pods_events_checked is not None and pod_name not in pods_events_checked:
             pod_warnings = _get_pod_events(pod_name, namespace)
+
+            # Retry once if no events yet (race condition)
+            if not pod_warnings:
+                time.sleep(0.5)  # Small delay to allow events to be registered
+                pod_warnings = _get_pod_events(pod_name, namespace)
+
             if pod_warnings:
+                print(f"Warning events for pod {pod_name}:")
                 pods_events_checked.add(pod_name)
                 for event in pod_warnings:
-                    print(f"Pod {pod_name}: {event['reason']} - {event['message']}")
+                    print(f"{event['reason']} - {event['message']}")
 
     if phase == 'Running':
         logging.info(f"Pod {pod_name} is Running.")
@@ -520,11 +531,15 @@ def _handle_pod_status(pod, last_reported_reasons, namespace=None, pods_events_c
         return 'succeeded', last_reported_reasons
     
     if phase == 'Failed':
-        reason = status.get('reason') or status.get('container_waiting_reason') or 'Unknown'
-        message = status.get('message') or status.get('container_waiting_message') or ''
-        print(f"Pod {pod_name} has Failed. Reason: {reason}")
-        if message:
-            print(f"  Message: {message}")
+        if last_reported_reason != 'failed':
+            reason = status.get('reason') or status.get('container_waiting_reason', None)
+            if reason:
+                message = status.get('message') or status.get('container_waiting_message') or ''
+                print(f"Pod {pod_name} has Failed. Reason: {reason}")
+                if message:
+                    print(f"  Message: {message}")
+            last_reported_reason = 'failed'
+            last_reported_reasons[pod_name] = last_reported_reason
         return 'failed', last_reported_reasons
 
     # Pending phase - check for waiting reasons
@@ -553,9 +568,7 @@ def _handle_pod_status(pod, last_reported_reasons, namespace=None, pods_events_c
     if status.get('container_terminated_reason'):
         reason = status['container_terminated_reason']
         exit_code = status.get('container_terminated_exit_code', 'unknown')
-        if reason == 'OOMKilled':
-            print(f"Pod {pod_name}: Container was OOMKilled (exit code {exit_code})")
-        elif reason != 'Completed':
+        if reason != 'Completed':
             print(f"Pod {pod_name}: Container terminated with {reason} (exit code {exit_code})")
 
     last_reported_reasons[pod_name] = last_reported_reason
@@ -633,6 +646,8 @@ def _get_job_events(job_name, namespace, filter_warning=True):
     except Exception:
         return []
 
+# INFO: Timeout is only checked when an event is received. 
+# INFO: If no events occur, the watch will exceed the timeout indefinitely until new events or errors occur.
 def wait_for_job_pods_ready(job_name, namespace=None, timeout=300):
     """
     Wait for a Job pod to be in Running state, or handle terminal/failure states.
@@ -662,16 +677,19 @@ def wait_for_job_pods_ready(job_name, namespace=None, timeout=300):
 
     logging.info(f"Watching pods for job {job_name}...")
 
-    # Before watch
-    job_status = _get_job_status(job_name, namespace)
-    if job_status is None:
+    # Get job UID
+    try:
+        job = Job.get(job_name, namespace=namespace)
+        job_uid = job.metadata.get('uid')
+    except Exception:
         print(f"Job {job_name} not found in namespace {namespace}")
         return None
     
     # TODO: Should a small delay be added here to allow initial pod creation? Otherwise should one more watch for Job events be added?
-
+    
     # Check if job already failed or has warning events
     # INFO: Checks for job events once before starting the watch. Any adverse events after that will not be reported.
+    job_status = _get_job_status(job_name, namespace)
     if job_status['failed_permanently']:
         print(f"Job {job_name} failed: {job_status['failure_reason']}")
         for event in _get_job_events(job_name, namespace):
@@ -679,82 +697,104 @@ def wait_for_job_pods_ready(job_name, namespace=None, timeout=300):
         return None
     
     # Even if not failed yet, warn about issues
-    # INFO: Checks for job events once before starting the watch. Any adverse events after that will not be reported.
     warning_events = _get_job_events(job_name, namespace)
     if warning_events and job_status['active'] == 0:
         print(f"Job {job_name} has warnings and no active pods:")
         for event in warning_events:
             print(f"{event['reason']}: {event['message']}")
 
-    try:
-        # Use kr8s to watch pods with the job-name label selector
-        # This opens a single persistent connection and receives push updates
-        for event, pod in kr8s.watch(
-            "pods",
-            namespace=namespace,
-            label_selector=f"job-name={job_name}",
-        ):
-            # Check timeout
+    while True:
+        # Check if we've exceeded total timeout
+        elapsed = time.time() - start_time
+        if elapsed >= timeout:
+            print(f"Timeout waiting for job {job_name} pods after {timeout}s.")
+            return None
+        
+        try:
+            for event, pod in kr8s.watch(
+                "pods",
+                namespace=namespace,
+                label_selector=f"job-name={job_name}",
+            ):
+                # Check timeout
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    print(f"Timeout waiting for job {job_name} pods after {timeout}s.")
+                    return None
+                
+                # Skip pods from previous job instances (same name, different UID)
+                owner_refs = pod.metadata.get('ownerReferences', [])
+                pod_job_uid = None
+                for ref in owner_refs:
+                    if ref.get('kind') == 'Job':
+                        pod_job_uid = ref.get('uid')
+                        break
+                if pod_job_uid != job_uid:
+                    logging.debug(f"Skipping pod {pod.name} from previous job instance")
+                    continue
+
+                # Skip DELETED events
+                if event == "DELETED":
+                    logging.debug(f"Pod {pod.name} was deleted.")
+                    time.sleep(0.5)
+                    job_status = _get_job_status(job_name, namespace)
+                    if job_status is None:
+                        print(f"Job {job_name} was deleted.")
+                        return None
+
+                    if job_status['failed_permanently']:
+                        reason = job_status.get('failure_reason', 'BackoffLimitExceeded')
+                        print(f"Job {job_name} has permanently failed. Reason: {reason}")
+                        return None
+                    
+                    continue
+
+                # Process ADDED and MODIFIED events
+                result, last_reported_reasons = _handle_pod_status(pod, last_reported_reasons, namespace, pods_events_checked)
+                
+                if result == 'running':
+                    return pod.name
+                
+                elif result == 'succeeded':
+                    logging.info(f"Pod {pod.name} completed successfully (Succeeded).")
+                    return pod.name
+                
+                elif result == 'failed':
+                    if pod.name not in failed_pods_logged:
+                        print(f"Pod {pod.name} failed. Printing logs...")
+                        get_logs(pod.name, namespace, follow=False, timeout=30)
+                        failed_pods_logged.add(pod.name)
+                    
+                        time.sleep(0.5)
+                        job_status = _get_job_status(job_name, namespace)
+                        if job_status:
+                            if job_status['failed_permanently']:
+                                reason = job_status.get('failure_reason', 'BackoffLimitExceeded')
+                                print(f"Job {job_name} has permanently failed. Reason: {reason}")
+                                return None
+                            elif job_status['active'] > 0:
+                                print(f"Job has {job_status['active']} active pod(s). Continuing to watch...")
+                            else:
+                                logging.info(f"No active pods for job {job_name}, waiting for new pod or job failure...")
+
+        except KeyboardInterrupt:
+            print("\nInterrupted while waiting for pod.")
+            return None
+        
+        except (httpx.RemoteProtocolError, kr8s._exceptions.ServerError, kr8s._exceptions.ConnectionClosedError) as e:
             elapsed = time.time() - start_time
-            if elapsed > timeout:
+            remaining = timeout - elapsed
+            
+            if remaining <= 0:
                 print(f"Timeout waiting for job {job_name} pods after {timeout}s.")
                 return None
-
-            # Skip DELETED events
-            if event == "DELETED":
-                logging.debug(f"Pod {pod.name} was deleted.")
-                # Check if job still exists
-                # INFO: This currently only checks if job is deleted when atleast one pod has been initialized and then deleted.
-                # INFO: If the job is deleted before any pod is created, the watch will not receive any pod events and will timeout.
-                # INFO: Not checking for job deletion on MODIFIED events to avoid excessive API calls.
-                job_status = _get_job_status(job_name, namespace)
-                if job_status is None:
-                    print(f"Job {job_name} was deleted.")
-                    return None
-                continue
-
-            # Process ADDED and MODIFIED events
-            # INFO: This prints warnings if they are in pending mode due to some issue. However, this only checks once for events per pod. 
-            # INFO: So this might miss some future events. Event watching can be added later if needed.
-            result, last_reported_reasons = _handle_pod_status(pod, last_reported_reasons, namespace, pods_events_checked)
             
-            if result == 'running':
-                return pod.name
-            
-            elif result == 'succeeded':
-                logging.info(f"Pod {pod.name} completed successfully (Succeeded).")
-                return pod.name
-            
-            elif result == 'failed':
-                # Pod failed - print logs if we haven't already
-                if pod.name not in failed_pods_logged:
-                    print(f"Pod {pod.name} failed. Printing logs...")
-                    get_logs(pod.name, namespace, follow=False, timeout=30)
-                    failed_pods_logged.add(pod.name)
-                
-                    # Check if Job has permanently failed (backoffLimit reached)
-                    job_status = _get_job_status(job_name, namespace)
-                    if job_status:
-                        if job_status['failed_permanently']:
-                            reason = job_status.get('failure_reason', 'BackoffLimitExceeded')
-                            print(f"Job {job_name} has permanently failed. Reason: {reason}")
-                            return None
-                        elif job_status['active'] > 0:
-                            print(f"Job has {job_status['active']} active pod(s). Continuing to watch...")
-                        else:
-                            # No active pods, but job not marked as failed yet
-                            # Could be creating a new pod, continue watching
-                            logging.info(f"No active pods for job {job_name}, waiting for new pod or job failure...")
-
-    except KeyboardInterrupt:
-        print("\nInterrupted while waiting for pod.")
-        return None
-    
-    except Exception as e:
-        import traceback
-        logging.error(f"Error watching pods for job {job_name}: {e}")
-        traceback.print_exc()
-        return None
+            logging.warning(f"Watch connection error: {e}. Retrying in 2s... ({int(remaining)}s remaining)")
+            time.sleep(2)
+        
+        except Exception as e:
+            logging.error(f"Error watching pods for job {job_name}: {e}")
+            return None
 
 def wait_for_pod_ready(pod_name, namespace=None, timeout=300):
     """
