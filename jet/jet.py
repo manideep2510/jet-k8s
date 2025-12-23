@@ -1,6 +1,7 @@
 # Main file to get user cli arguments, submit job, print job status and underlying pods, capture other commands such as get, describe, exec, logs, delete, etc.
 # and call relevant functions from other modules
 
+import sys
 import argparse
 import subprocess
 from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager, detect_shell, get_kubeconfig, get_current_namespace
@@ -123,7 +124,7 @@ def parse_arguments():
     debug_parser.add_argument('--image', help='Container image name')
     debug_parser.add_argument('--image-pull-policy', choices=['IfNotPresent', 'Always', 'Never'], help='Image pull policy')
     debug_parser.add_argument('--duration', type=int, help='Duration of the debug session in seconds (default: 21600 seconds = 6 hours)')
-    debug_parser.add_argument('--shell', help='Shell to use for the debug session. If zsh is required, user must provide image with zsh installed, set --shell /usr/bin/zsh, and mount user home/zsh files if needed using --volume flag')
+    debug_parser.add_argument('--shell', help='Shell to use for the debug session. If zsh is required, user must provide image with zsh installed, set --shell /usr/bin/zsh, and mount user home/zsh files if needed using --mount-home flag')
     debug_parser.add_argument('--pyenv', help='Path to Python environment. Supported envs: conda, venv, uv.')
     debug_parser.add_argument('--scheduler', help='Scheduler name')
     debug_parser.add_argument('--priority', help='Job priority class name')
@@ -181,6 +182,7 @@ def parse_arguments():
     # jet connect <job_name> (defaults to job) or jet connect pod <pod_name>
     connect_parser = subparsers.add_parser('connect', help='Execute into a debug session. If no resource type is provided (Examples: `jet connect my-job`), defaults to job.')
     connect_parser.add_argument('connect_args', nargs='*', metavar='ARG', help='[resource_type] <name>. Examples: "my-job", "job my-job", "pod my-pod".')
+    connect_parser.add_argument('--shell', '-s', help='Shell to use for exec into the pod. If not provided, shell will be auto-detected from the container command.')
     connect_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     parser._subparsers_map['connect'] = connect_parser
 
@@ -246,7 +248,6 @@ class Jet():
         if job_config_obj.dry_run:
             return
 
-        # TODO: If follow is True, implement logic to follow job logs, status and events in addition to below pod log streaming.
         if job_config_obj.follow:
             namespace = self.set_namespace
             
@@ -304,7 +305,6 @@ class Jet():
             return
 
         # TODO: Watch for job and pod status. If any of them fail or deleted EXTERNALLY, stop port forwarding and exit gracefully.
-        # TODO: If follow is True, implement logic to follow job logs, status and events in addition to below pod log streaming.
         # BUG: If a job is already finished, but resubmitted with the same name, kubectl will say "configured", which is not an error. So this impl goes on to wait for pod readiness, which will timeout and delete the job. Need to handle that better.
 
         namespace = self.set_namespace
@@ -414,7 +414,6 @@ class Jet():
         if job_config_obj.dry_run:
             return
 
-        # TODO: If follow is True, implement logic to follow job logs, status and events.
         # TODO: Exec only if a connect argument is passed. Yet to implement.
 
         namespace = self.set_namespace
@@ -531,9 +530,10 @@ class Jet():
         """Connect (exec) into a pod."""
         resource_type = self.processed_args.get('resource_type')
         name = self.processed_args.get('name')
+        shell_type = self.processed_args.get('shell')
         
         if resource_type == 'pod' and name:
-            shell_type = detect_shell(name, self.set_namespace)
+            shell_type = shell_type if shell_type else detect_shell(name, self.set_namespace)
             exec_into_pod(name, self.set_namespace, shell_type)
         elif resource_type == 'job' and name:
             # For jobs, show TUI to select a pod
@@ -544,10 +544,11 @@ class Jet():
                 if len(pods) == 1:
                     # Only one pod, exec into it directly
                     pod_name = pods[0].name
-                    shell_type = detect_shell(pod_name, self.set_namespace)
+                    shell_type = shell_type if shell_type else detect_shell(pod_name, self.set_namespace)
                     exec_into_pod(pod_name, self.set_namespace, shell_type)
                 else:
                     # Launch TUI to select pod
+                    # TODO: Pass user selected shell into TUI
                     result = run_tui(mode="pods", namespace=self.set_namespace, job_name=name)
                     if result and isinstance(result, tuple):
                         action, pod_name, ns = result
@@ -599,67 +600,71 @@ def run(args, command, subcommand=None):
         jet.delete()
 
 def cli():
-    
-    # Command line arguments
-    parser, args = parse_arguments()
+    try:
+        # Command line arguments
+        parser, args = parse_arguments()
 
-    # Handle case when no command is provided
-    if args.jet_command is None:
-        return print_help_and_exit(parser)
+        # Handle case when no command is provided
+        if args.jet_command is None:
+            return print_help_and_exit(parser)
 
-    # Handle case when 'launch' is provided but no subcommand (job/jupyter/debug)
-    if args.jet_command == 'launch' and (not hasattr(args, 'launch_type') or args.launch_type is None):
-        return print_help_and_exit(parser, 'launch')
+        # Handle case when 'launch' is provided but no subcommand (job/jupyter/debug)
+        if args.jet_command == 'launch' and (not hasattr(args, 'launch_type') or args.launch_type is None):
+            return print_help_and_exit(parser, 'launch')
 
-    # Handle case when 'launch job/jupyter/debug' is provided but no name
-    if args.jet_command == 'launch' and args.launch_type in ['job', 'jupyter', 'debug']:
-        if not hasattr(args, 'name') or args.name is None:
-            return print_help_and_exit(parser, f'launch_{args.launch_type}')
+        # Handle case when 'launch job/jupyter/debug' is provided but no name
+        if args.jet_command == 'launch' and args.launch_type in ['job', 'jupyter', 'debug']:
+            if not hasattr(args, 'name') or args.name is None:
+                return print_help_and_exit(parser, f'launch_{args.launch_type}')
 
-    # Handle case when 'logs' is provided but no arguments
-    if args.jet_command == 'logs' and (not hasattr(args, 'logs_args') or not args.logs_args):
-        return print_help_and_exit(parser, 'logs')
+        # Handle case when 'logs' is provided but no arguments
+        if args.jet_command == 'logs' and (not hasattr(args, 'logs_args') or not args.logs_args):
+            return print_help_and_exit(parser, 'logs')
 
-    # Handle case when 'connect' is provided but no arguments
-    if args.jet_command == 'connect' and (not hasattr(args, 'connect_args') or not args.connect_args):
-        return print_help_and_exit(parser, 'connect')
+        # Handle case when 'connect' is provided but no arguments
+        if args.jet_command == 'connect' and (not hasattr(args, 'connect_args') or not args.connect_args):
+            return print_help_and_exit(parser, 'connect')
 
-    # Handle case when 'delete' is provided but no arguments
-    if args.jet_command == 'delete' and (not hasattr(args, 'delete_args') or not args.delete_args):
-        return print_help_and_exit(parser, 'delete')
+        # Handle case when 'delete' is provided but no arguments
+        if args.jet_command == 'delete' and (not hasattr(args, 'delete_args') or not args.delete_args):
+            return print_help_and_exit(parser, 'delete')
 
-    # Handle case when 'describe' is provided but insufficient arguments (need resource_type and name)
-    if args.jet_command == 'describe':
-        describe_args = args.describe_args if hasattr(args, 'describe_args') else []
-        # Filter out namespace flags to count actual positional args
-        positional_args = []
-        i = 0
-        while i < len(describe_args):
-            if describe_args[i] in ['-n', '--namespace'] and i + 1 < len(describe_args):
-                i += 2  # Skip flag and value
-            elif describe_args[i].startswith('--namespace='):
-                i += 1  # Skip flag
-            elif describe_args[i].startswith('-'):
-                i += 1  # Skip other flags
-            else:
-                positional_args.append(describe_args[i])
-                i += 1
-        # Need at least 2 positional args: resource_type and name
-        if len(positional_args) < 2:
-            return print_help_and_exit(parser, 'describe')
+        # Handle case when 'describe' is provided but insufficient arguments (need resource_type and name)
+        if args.jet_command == 'describe':
+            describe_args = args.describe_args if hasattr(args, 'describe_args') else []
+            # Filter out namespace flags to count actual positional args
+            positional_args = []
+            i = 0
+            while i < len(describe_args):
+                if describe_args[i] in ['-n', '--namespace'] and i + 1 < len(describe_args):
+                    i += 2  # Skip flag and value
+                elif describe_args[i].startswith('--namespace='):
+                    i += 1  # Skip flag
+                elif describe_args[i].startswith('-'):
+                    i += 1  # Skip other flags
+                else:
+                    positional_args.append(describe_args[i])
+                    i += 1
+            # Need at least 2 positional args: resource_type and name
+            if len(positional_args) < 2:
+                return print_help_and_exit(parser, 'describe')
 
-    # Process arguments
-    processor = ProcessArguments(args)
-    processed_args = processor.process()
+        # Process arguments
+        processor = ProcessArguments(args)
+        processed_args = processor.process()
 
-    # Run Jet commands
-    subcommand = None
-    if hasattr(args, 'launch_type'):
-        subcommand = args.launch_type
-    elif hasattr(args, 'list_type'):
-        subcommand = args.list_type
-    
-    run(processed_args, args.jet_command, subcommand)
+        # Run Jet commands
+        subcommand = None
+        if hasattr(args, 'launch_type'):
+            subcommand = args.launch_type
+        elif hasattr(args, 'list_type'):
+            subcommand = args.list_type
+        
+        run(processed_args, args.jet_command, subcommand)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     cli()

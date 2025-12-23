@@ -94,8 +94,6 @@ kubectl logs job/my-job --tail 100 --timestamps
 
 Run `jet logs -h` to see all available kubectl options.
 
----
-
 ## jet describe
 
 Get detailed information about a job.
@@ -145,8 +143,6 @@ kubectl describe job/my-job -o yaml
 
 Run `jet describe -h` for all available kubectl options.
 
----
-
 ## jet connect
 
 Connect to a running job's container with an interactive shell.
@@ -161,6 +157,13 @@ jet connect my-job
 
 This opens a shell session in the job's container.
 
+You can also specify the resource type explicitly:
+
+```bash
+jet connect pod my-pod-name
+jet connect job my-job-name
+```
+
 ### Shell Selection
 
 Jet automatically selects a shell in the following order:
@@ -171,45 +174,15 @@ Jet automatically selects a shell in the following order:
 4. `/usr/bin/fish` (if available)
 5. `/bin/sh` (fallback)
 
-### Container Selection
-
-For jobs with multiple containers:
+or you can specify a shell explicitly:
 
 ```bash
-jet connect my-job -c container-name
-```
-
-### Connect to Jupyter Sessions
-
-```bash
-# Get shell access to jupyter session
-jet connect my-jupyter-session
-
-# Check what's running
-jet connect my-jupyter-session -- ps aux
-```
-
-### Connect to Debug Sessions
-
-Debug sessions are specifically designed for interactive work:
-
-```bash
-jet connect my-debug-session
-```
-
-### Kubectl Passthrough
-
-All arguments after `--` are passed directly to `kubectl exec`:
-
-```bash
-# These are equivalent:
-jet connect my-job -- /bin/bash
-kubectl exec -it <pod-name> -- /bin/bash  # (jet finds the pod for you)
+jet connect my-job --shell zsh
+jet connect my-job -s zsh
 ```
 
 Run `jet connect -h` for all available kubectl options.
 
----
 
 ## jet delete
 

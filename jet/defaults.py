@@ -14,5 +14,9 @@ DEFAULT_DEBUG_TTL_SECONDS_AFTER_FINISHED = 21600  # 6 hours
 DEFAULT_DEBUG_JOB_DURATION_SECONDS = 21600  # 6 hours
 # Timeout when waiting for job pods to start when `--follow` is used or when waiting for jupyter or debug pods to start
 DEFAULT_JOB_POD_WAITING_TIMEOUT = 300  # 5 minutes
+
+DEFAULT_SHELL = '/bin/bash'
+
 XDG_DATA_HOME = os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")
 JET_HOME = Path(XDG_DATA_HOME) / "jet"
+

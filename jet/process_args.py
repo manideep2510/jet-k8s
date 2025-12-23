@@ -267,12 +267,14 @@ class ProcessArguments:
         """Process connect command arguments.
         
         Supports formats:
-        - jet connect <job_name>                     # defaults to job
-        - jet connect pod <pod_name>                 # explicitly connect to pod
-        - jet connect job <job_name>                 # explicitly connect to job
+        - jet connect <job_name>                           # defaults to job
+        - jet connect pod <pod_name>                       # explicitly connect to pod
+        - jet connect job <job_name>                       # explicitly connect to job
+        - jet connect <job_name> -s bash -n namespace      # with namespace and shell
         """
         connect_args = self.args.connect_args if hasattr(self.args, 'connect_args') else []
         namespace = self.args.namespace if hasattr(self.args, 'namespace') and self.args.namespace else None
+        shell = self.args.shell if hasattr(self.args, 'shell') and self.args.shell else None
         
         resource_type = 'job'  # Default to job
         name = None
@@ -293,7 +295,8 @@ class ProcessArguments:
         return {
             'resource_type': resource_type,
             'name': name,
-            'namespace': namespace
+            'namespace': namespace,
+            'shell': shell
         }
 
     def _process_delete(self):
@@ -535,7 +538,7 @@ class ProcessArguments:
         if hasattr(self.args, 'shell') and self.args.shell:
              container.command = self.args.shell + " -c"
         elif not container.command:
-             container.command = "/bin/sh -c"
+             container.command = DEFAULT_SHELL + " -c"
 
         if command_override:
             container.args = [command_override]
@@ -709,6 +712,10 @@ class ProcessArguments:
         mount_path = pyenv_arg
         volume_type = 'Directory'
         pyenv_volume_details.append({'name': volume_name, 'volume_type': 'hostPath', 'mount_path': mount_path, 'details': {'path': host_path, 'type': volume_type}})
+
+        # Check if the pyenv directory is present
+        if not os.path.isdir(pyenv_arg):
+            raise ValueError(f"The provided --pyenv path '{pyenv_arg}' is invalid or does not exist")
 
         # Env vars and additional volume for uv base path if detected
         files_in_pyenv = os.listdir(pyenv_arg)
