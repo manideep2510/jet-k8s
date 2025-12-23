@@ -14,6 +14,7 @@ from collections import defaultdict
 import shutil
 import textwrap
 from .defaults import JET_HOME
+from .k8s_events import K8S_EVENTS
 
 
 def get_kubeconfig():
@@ -306,17 +307,30 @@ def get_logs(pod_name, namespace=None, follow=True, timeout=None):
             # Break the loop if logs ended without exception
             break 
 
-        # Break the loop if timeout is reached
-        except (httpx.ReadTimeout, kr8s._exceptions.APITimeoutError, TimeoutError):
-            logging.warning(f"Log stream timed out after {timeout} seconds. Stopping log stream.")
+        except (httpx.RemoteProtocolError, kr8s._exceptions.ServerError) as e:
+            logging.warning(f"Log stream interrupted due to a connection error: {e}. Restarting log stream in 5 seconds...")
+            time.sleep(5)
+
+        except kr8s._exceptions.ConnectionClosedError as e:
+            logging.warning(f"Connection closed error while streaming logs for pod {pod_name}: {e}. Restarting log stream in 5 seconds...")
+            time.sleep(5)
+
+        # Handle pod not found error
+        except kr8s._exceptions.NotFoundError:
+            logging.error(f"Pod {pod_name} not found to stream logs")
             break
 
-        except httpx.RemoteProtocolError as e:
-            logging.warning(f"Log stream interrupted due to protocol error: {e}. Restarting log stream in 5 seconds...")
-            time.sleep(5)
+        # Break the loop if timeout is reached
+        except (httpx.ReadTimeout, kr8s._exceptions.APITimeoutError, TimeoutError):
+            logging.error(f"Log stream timed out after {timeout} seconds. Stopping log stream.")
+            break
 
         except KeyboardInterrupt:
             print("\nKeyboard interrupt received. Stopping log stream. But the job/pod will continue to run.")
+            break
+
+        except Exception as e:
+            logging.error(f"Error streaming logs for pod {pod_name}: {e}")
             break
 
 def get_job_pod_names(job_name, namespace=None, field_selector=None):
@@ -380,110 +394,464 @@ def get_job_pod_names(job_name, namespace=None, field_selector=None):
         logging.error(f"Error parsing pod data for job {job_name}: {e}")
         return []
 
+def _extract_pod_status(pod):
+    """
+    Extract detailed status info from a kr8s Pod object.
+    """
+    status = pod.status
+    
+    phase = status.get('phase', 'Unknown')
+    reason = status.get('reason', '') 
+    message = status.get('message', '')
+    
+    container_waiting_reason = None
+    container_waiting_message = None
+    container_terminated_reason = None
+    container_terminated_exit_code = None
+    is_ready = False
+    
+    # Check all container statuses (regular + init)
+    all_container_statuses = (
+        status.get('containerStatuses', []) + 
+        status.get('initContainerStatuses', [])
+    )
+    
+    for cs in all_container_statuses:
+        state = cs.get('state', {})
+        
+        # Check waiting
+        if 'waiting' in state and not container_waiting_reason:
+            container_waiting_reason = state['waiting'].get('reason', '')
+            container_waiting_message = state['waiting'].get('message', '')
+        
+        # Check terminated (OOMKilled, Error, etc.)
+        if 'terminated' in state and not container_terminated_reason:
+            term = state['terminated']
+            if term.get('exitCode', 0) != 0 or term.get('reason') not in ('Completed', None):
+                container_terminated_reason = term.get('reason', '')
+                container_terminated_exit_code = term.get('exitCode')
+    
+    # Check Ready condition
+    for condition in status.get('conditions', []):
+        if condition.get('type') == 'Ready' and condition.get('status') == 'True':
+            is_ready = True
+            break
+    
+    return {
+        'phase': phase,
+        'reason': reason,
+        'message': message,
+        'container_waiting_reason': container_waiting_reason,
+        'container_waiting_message': container_waiting_message,
+        'container_terminated_reason': container_terminated_reason,
+        'container_terminated_exit_code': container_terminated_exit_code,
+        'is_ready': is_ready
+    }
+
+
+# Non-terminal waiting reasons that we should inform user about
+_NON_TERMINAL_WAITING_REASONS = {
+    'ImagePullBackOff': 'Image pull is failing',
+    'ErrImagePull': 'Error pulling image',
+    'CrashLoopBackOff': 'Container is crash-looping',
+    'CreateContainerConfigError': 'Error creating container config',
+    'InvalidImageName': 'Invalid image name specified'
+}
+
+# Transitional states that are normal and can be logged at info level
+_TRANSITIONAL_STATES = {
+    'ContainerCreating': 'Container is being created',
+    'PodInitializing': 'Pod is initializing',
+}
+
+def _get_pod_events(pod_name, namespace, filter_warning=True):
+    """Get events for a pod."""
+    try:
+        events = kr8s.get(
+            "events",
+            namespace=namespace,
+            field_selector=f"involvedObject.name={pod_name},involvedObject.kind=Pod"
+        )
+        events_list = []
+        for e in events:
+            if filter_warning and e.raw.get('type') != 'Warning':
+                continue
+            if e.raw.get('reason') not in K8S_EVENTS:
+                continue
+            events_list.append({
+                'reason': e.raw.get('reason', ''),
+                'message': e.raw.get('message', '')
+            })
+        return events_list
+    except Exception:
+        return []
+
+
+def _handle_pod_status(pod, last_reported_reasons, namespace=None, pods_events_checked=None):
+    """
+    Process pod status and return result.
+    
+    Args:
+        pod: kr8s Pod object
+        last_reported_reasons: The last waiting reason we reported to avoid spam for each pod
+        namespace: Kubernetes namespace
+        pods_events_checked: Set of pod names for which events have been checked (to avoid duplicate event checks)
+    
+    Returns:
+        tuple: (result, new_last_reported_reason)
+               result is 'running', 'succeeded', 'failed', or None (keep waiting)
+    """
+    status = _extract_pod_status(pod)
+    phase = status['phase']
+    pod_name = pod.name
+    last_reported_reason = last_reported_reasons.get(pod_name)
+
+    # Check pod events once per pod (before phase checks)
+    if phase not in ('Running', 'Succeeded'):
+        if pods_events_checked is not None and pod_name not in pods_events_checked:
+            pod_warnings = _get_pod_events(pod_name, namespace)
+
+            # Retry once if no events yet (race condition)
+            if not pod_warnings:
+                time.sleep(0.5)  # Small delay to allow events to be registered
+                pod_warnings = _get_pod_events(pod_name, namespace)
+
+            if pod_warnings:
+                print(f"Warning events for pod {pod_name}:")
+                pods_events_checked.add(pod_name)
+                for event in pod_warnings:
+                    print(f"{event['reason']} - {event['message']}")
+
+    if phase == 'Running':
+        logging.info(f"Pod {pod_name} is Running.")
+        return 'running', last_reported_reasons
+    
+    if phase == 'Succeeded':
+        logging.info(f"Pod {pod_name} has Succeeded.")
+        return 'succeeded', last_reported_reasons
+    
+    if phase == 'Failed':
+        if last_reported_reason != 'failed':
+            reason = status.get('reason') or status.get('container_waiting_reason', None)
+            if reason:
+                message = status.get('message') or status.get('container_waiting_message') or ''
+                print(f"Pod {pod_name} has Failed. Reason: {reason}")
+                if message:
+                    print(f"  Message: {message}")
+            last_reported_reason = 'failed'
+            last_reported_reasons[pod_name] = last_reported_reason
+        return 'failed', last_reported_reasons
+
+    # Pending phase - check for waiting reasons
+    if phase == 'Pending':
+        waiting_reason = status.get('container_waiting_reason')
+        if waiting_reason and waiting_reason != last_reported_reason:
+            if waiting_reason in _NON_TERMINAL_WAITING_REASONS:
+                desc = _NON_TERMINAL_WAITING_REASONS.get(waiting_reason, waiting_reason)
+                print(f"Pod {pod_name}: {desc}")
+                if status.get('container_waiting_message'):
+                    print(f"  Details: {status['container_waiting_message']}")
+            elif waiting_reason in _TRANSITIONAL_STATES:
+                logging.info(
+                    f"Pod {pod_name}: {_TRANSITIONAL_STATES.get(waiting_reason, waiting_reason)}")
+            else:
+                # Unknown waiting reason - still report it
+                print(f"Pod {pod_name}: {waiting_reason}")
+            last_reported_reason = waiting_reason
+    
+    # Unknown phase
+    if phase == 'Unknown' and last_reported_reason != 'unknown':
+        print(f"Pod {pod_name} is in Unknown state. This may indicate node issues.")
+        last_reported_reason = 'unknown'
+
+    # Check for OOMKilled or other container termination (while pod still "Running")
+    if status.get('container_terminated_reason'):
+        reason = status['container_terminated_reason']
+        exit_code = status.get('container_terminated_exit_code', 'unknown')
+        if reason != 'Completed':
+            print(f"Pod {pod_name}: Container terminated with {reason} (exit code {exit_code})")
+
+    last_reported_reasons[pod_name] = last_reported_reason
+
+    return None, last_reported_reasons
+
+
+def _get_job_status(job_name, namespace):
+    """
+    Get Job status to check if it has failed (backoffLimit reached) or succeeded.
+
+    Args:
+        job_name (str): Name of the job.
+        namespace (str): Kubernetes namespace.
+    
+    Returns:
+        dict with keys: 'active', 'succeeded', 'failed', 'complete', 'failed_permanently'
+        Or None if job not found.
+    """
+    try:
+        job = Job.get(job_name, namespace=namespace)
+        status = job.status
+        
+        # Check conditions for Complete or Failed
+        conditions = status.get('conditions', [])
+        is_complete = False
+        is_failed_permanently = False
+        failure_reason = None
+        
+        for cond in conditions:
+            if cond.get('type') == 'Complete' and cond.get('status') == 'True':
+                is_complete = True
+            if cond.get('type') == 'Failed' and cond.get('status') == 'True':
+                is_failed_permanently = True
+                failure_reason = cond.get('reason', '')
+        
+        return {
+            'active': status.get('active', 0),
+            'succeeded': status.get('succeeded', 0),
+            'failed': status.get('failed', 0),
+            'complete': is_complete,
+            'failed_permanently': is_failed_permanently,
+            'failure_reason': failure_reason,
+        }
+    except Exception:
+        return None
+
+def _get_job_events(job_name, namespace, filter_warning=True):
+    """Get recent events for a job."""
+    try:
+        # Get the job's UID
+        job = Job.get(job_name, namespace=namespace)
+        job_uid = job.metadata.get('uid')
+
+        events = kr8s.get(
+            "events",
+            namespace=namespace,
+            field_selector=f"involvedObject.name={job_name},involvedObject.kind=Job"
+        )
+        
+        events_list = []
+        for e in events:
+            if filter_warning and e.raw.get('type') != 'Warning':
+                continue
+            if e.raw.get('reason') not in K8S_EVENTS:
+                continue
+
+            if e.raw.get('involvedObject', {}).get('uid') == job_uid:
+                events_list.append({
+                    'reason': e.raw.get('reason', ''),
+                    'message': e.raw.get('message', '')
+                })
+        return events_list
+    
+    except Exception:
+        return []
+
+# INFO: Timeout is only checked when an event is received. 
+# INFO: If no events occur, the watch will exceed the timeout indefinitely until new events or errors occur.
 def wait_for_job_pods_ready(job_name, namespace=None, timeout=300):
     """
-    Wait for Job to have active pods, then wait for those pods to be ready.
-    Note: This function only waits for the first active pod.
+    Wait for a Job pod to be in Running state, or handle terminal/failure states.
+    Uses kr8s watch for efficient single-connection streaming updates.
+    
+    Behaviors:
+    - If pod reaches Running state, return the pod name
+    - If pod reaches Succeeded state, return the pod name
+    - If pod fails, print logs and continue watching for retries/new pods
+    - If Job reaches backoffLimit (permanent failure), return None
+    - If pod is in a waiting state (ImagePullBackOff, etc.), inform user and keep waiting
+    - Handle fast completion where pod goes to terminal state quickly
 
     Args:
         job_name (str): Name of the job.
         namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
         timeout (int): Maximum time to wait in seconds.
+    
+    Returns:
+        str: Pod name if pod reached running/succeeded, or None if failed/timeout.
     """
-
     namespace = namespace if namespace else get_current_namespace()
+    start_time = time.time()
+    last_reported_reasons = {}
+    failed_pods_logged = set()  # Track pods we have already printed logs for
+    pods_events_checked = set()  # Track pods for which we have checked events
 
+    logging.info(f"Watching pods for job {job_name}...")
+
+    # Get job UID
     try:
-        # List all pods for the job
-        # Get number of active pods for the job to check if it's running
-        result = subprocess.run(
-            ['kubectl', 'wait', f'job/{job_name}',
-             '--for=jsonpath={.status.active}',
-             '--timeout=60s',
-             '-n', namespace],
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0:
-            # Job is running with active pods
-            logging.info(f"Job {job_name} has active pods. Waiting for pods to be Ready...")
-
-            # List active pods
-            time.sleep(1)  # Small delay to ensure pods are listed
-
-            # Get pod names that are not Succeeded or Failed or Unknown
-            pod_names = get_job_pod_names(job_name, namespace, field_selector='status.phase!=Succeeded,status.phase!=Failed,status.phase!=Unknown')
-            if not pod_names:
-                raise Exception("No pods found for the job in running or pending state.")
-            for pod_name in pod_names:
-                # TODO: Print pod names if they are failed and moved on to next pod
-                wait_for_pod_ready(pod_name, namespace, timeout)
-                return pod_name  # Return the first pod name that is ready
-        else:
-            raise Exception(result.stderr)
-        
-    except Exception as e:
-        print(f"Error getting job state: {e}")
+        job = Job.get(job_name, namespace=namespace)
+        job_uid = job.metadata.get('uid')
+    except Exception:
+        print(f"Job {job_name} not found in namespace {namespace}")
         return None
+    
+    # TODO: Should a small delay be added here to allow initial pod creation? Otherwise should one more watch for Job events be added?
+    
+    # Check if job already failed or has warning events
+    # INFO: Checks for job events once before starting the watch. Any adverse events after that will not be reported.
+    job_status = _get_job_status(job_name, namespace)
+    if job_status['failed_permanently']:
+        print(f"Job {job_name} failed: {job_status['failure_reason']}")
+        for event in _get_job_events(job_name, namespace):
+            print(f"{event['reason']}: {event['message']}")
+        return None
+    
+    # Even if not failed yet, warn about issues
+    warning_events = _get_job_events(job_name, namespace)
+    if warning_events and job_status['active'] == 0:
+        print(f"Job {job_name} has warnings and no active pods:")
+        for event in warning_events:
+            print(f"{event['reason']}: {event['message']}")
+
+    while True:
+        # Check if we've exceeded total timeout
+        elapsed = time.time() - start_time
+        if elapsed >= timeout:
+            print(f"Timeout waiting for job {job_name} pods after {timeout}s.")
+            return None
         
+        try:
+            for event, pod in kr8s.watch(
+                "pods",
+                namespace=namespace,
+                label_selector=f"job-name={job_name}",
+            ):
+                # Check timeout
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    print(f"Timeout waiting for job {job_name} pods after {timeout}s.")
+                    return None
+                
+                # Skip pods from previous job instances (same name, different UID)
+                owner_refs = pod.metadata.get('ownerReferences', [])
+                pod_job_uid = None
+                for ref in owner_refs:
+                    if ref.get('kind') == 'Job':
+                        pod_job_uid = ref.get('uid')
+                        break
+                if pod_job_uid != job_uid:
+                    logging.debug(f"Skipping pod {pod.name} from previous job instance")
+                    continue
+
+                # Skip DELETED events
+                if event == "DELETED":
+                    logging.debug(f"Pod {pod.name} was deleted.")
+                    time.sleep(0.5)
+                    job_status = _get_job_status(job_name, namespace)
+                    if job_status is None:
+                        print(f"Job {job_name} was deleted.")
+                        return None
+
+                    if job_status['failed_permanently']:
+                        reason = job_status.get('failure_reason', 'BackoffLimitExceeded')
+                        print(f"Job {job_name} has permanently failed. Reason: {reason}")
+                        return None
+                    
+                    continue
+
+                # Process ADDED and MODIFIED events
+                result, last_reported_reasons = _handle_pod_status(pod, last_reported_reasons, namespace, pods_events_checked)
+                
+                if result == 'running':
+                    return pod.name
+                
+                elif result == 'succeeded':
+                    logging.info(f"Pod {pod.name} completed successfully (Succeeded).")
+                    return pod.name
+                
+                elif result == 'failed':
+                    if pod.name not in failed_pods_logged:
+                        print(f"Pod {pod.name} failed. Printing logs...")
+                        get_logs(pod.name, namespace, follow=False, timeout=30)
+                        failed_pods_logged.add(pod.name)
+                    
+                        time.sleep(0.5)
+                        job_status = _get_job_status(job_name, namespace)
+                        if job_status:
+                            if job_status['failed_permanently']:
+                                reason = job_status.get('failure_reason', 'BackoffLimitExceeded')
+                                print(f"Job {job_name} has permanently failed. Reason: {reason}")
+                                return None
+                            elif job_status['active'] > 0:
+                                print(f"Job has {job_status['active']} active pod(s). Continuing to watch...")
+                            else:
+                                logging.info(f"No active pods for job {job_name}, waiting for new pod or job failure...")
+
+        except KeyboardInterrupt:
+            print("\nInterrupted while waiting for pod.")
+            return None
+        
+        except (httpx.RemoteProtocolError, kr8s._exceptions.ServerError, kr8s._exceptions.ConnectionClosedError) as e:
+            elapsed = time.time() - start_time
+            remaining = timeout - elapsed
+            
+            if remaining <= 0:
+                print(f"Timeout waiting for job {job_name} pods after {timeout}s.")
+                return None
+            
+            logging.warning(f"Watch connection error: {e}. Retrying in 2s... ({int(remaining)}s remaining)")
+            time.sleep(2)
+        
+        except Exception as e:
+            logging.error(f"Error watching pods for job {job_name}: {e}")
+            return None
 
 def wait_for_pod_ready(pod_name, namespace=None, timeout=300):
     """
-    Wait for a Kubernetes pod to be in the 'Running' state.
+    Wait for a Kubernetes pod to be in the 'Running' state, or handle terminal states.
+    Uses kr8s watch for efficient single-connection streaming updates.
+    
+    Behaviors:
+    - Returns 'running' if pod reaches Running state
+    - Returns 'succeeded' if pod completes successfully
+    - Returns 'failed' if pod fails
+    - Returns 'timeout' if timeout exceeded
+    - Prints status updates for waiting states (ImagePullBackOff, CrashLoopBackOff, etc.)
 
     Args:
         pod_name (str): Name of the pod.
         namespace (str): Kubernetes namespace. If None, uses current kubectl context namespace.
+        timeout (int): Maximum time to wait in seconds.
+    
+    Returns:
+        str: 'running', 'succeeded', 'failed', or 'timeout'
     """
-
     namespace = namespace if namespace else get_current_namespace()
+    start_time = time.time()
+    last_reported_reasons = {}
+
+    logging.info(f"Watching pod {pod_name} for ready state...")
 
     try:
-        # pod = Pod(resource=pod_name, namespace=namespace)
-        # logging.info(
-        #     f"Waiting for pod {pod_name} in namespace {pod.namespace} to be Ready...")
-        # pod.wait(conditions=["condition=Ready"], timeout=timeout)
-        # return
+        # Use kr8s to watch a specific pod by field selector
+        for event, pod in kr8s.watch(
+            "pods",
+            namespace=namespace,
+            field_selector=f"metadata.name={pod_name}",
+        ):
+            # Check timeout
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                print(f"Timeout waiting for pod {pod_name} after {timeout}s.")
+                return 'timeout'
 
-        while True:
-            result = subprocess.run(
-                ['kubectl', 'wait', f'pod/{pod_name}',
-                '--for=condition=Ready',
-                f'--timeout={timeout}s',
-                '-n', namespace],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                logging.info(f"Pod {pod_name} is Ready.")
-                # Check if the pod is actually running
-                state_result = subprocess.run(
-                    ['kubectl', 'get', 'pod', pod_name,
-                    '-n', namespace,
-                    '-o', 'jsonpath={.status.phase}'],
-                    capture_output=True,
-                    text=True
-                )
-                if state_result.returncode == 0:
-                    pod_state = state_result.stdout.strip()
-                    if pod_state == 'Running':
-                        logging.info(f"Pod {pod_name} is in Running state.")
-                        return
-                    else:
-                        logging.info(f"Pod {pod_name} is in {pod_state} state. Waiting 5 seconds...")
-                        # Break to recheck the pod state
-                        break
-                else:
-                    raise Exception(state_result.stderr)
-                return
-            else:
-                raise Exception(result.stderr)
+            # Skip DELETED events
+            if event == "DELETED":
+                logging.warning(f"Pod {pod_name} was deleted while waiting.")
+                return 'failed'
+
+            # Process ADDED and MODIFIED events
+            result, last_reported_reasons = _handle_pod_status(pod, last_reported_reasons)
             
-            
-        
+            if result is not None:
+                return result
+
+    except KeyboardInterrupt:
+        print("\nInterrupted while waiting for pod.")
+        return 'timeout'
     except Exception as e:
-        print(f"Error getting pod state: {e}")
-        return None
+        logging.error(f"Error watching pod {pod_name}: {e}")
+        return 'failed'
 
 def get_shell_from_container_spec(pod_name, namespace=None, container_name=None):
     """Check if container spec specifies a shell. If namespace is None, uses current kubectl context namespace."""

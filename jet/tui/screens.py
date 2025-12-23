@@ -1288,6 +1288,7 @@ class DescribeScreen(Screen):
         Binding("escape", "go_back", "Back", show=True, priority=True),
         Binding("g", "scroll_home", "Top", show=True),
         Binding("G", "scroll_end", "Bottom", show=True),
+        Binding("r", "refresh", "Refresh", show=True),
         Binding("j", "scroll_down", "Down", show=False),
         Binding("J", "scroll_down", "Down", show=False),
         Binding("k", "scroll_up", "Up", show=False),
@@ -1369,6 +1370,14 @@ class DescribeScreen(Screen):
         # Scroll to bottom by default (most relevant info like Events is at the bottom)
         container = self.query_one("#describe-container", VerticalScroll)
         container.scroll_end(animate=False)
+
+    def action_refresh(self) -> None:
+        """Refresh describe output."""
+        # Only cancel our own worker, not all workers
+        if self._describe_worker is not None:
+            self._describe_worker.cancel()
+            self._describe_worker = None
+        self._describe_worker = self._load_describe()
     
     def action_go_back(self) -> None:
         """Go back to previous screen or quit if at root."""
