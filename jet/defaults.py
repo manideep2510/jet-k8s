@@ -1,22 +1,31 @@
-import os
+"""
+Re-exports configuration from the config module to load default values.
+
+Default configuration is stored in ~/.local/share/jet/config.yaml (or $XDG_DATA_HOME/jet/config.yaml).
+Use jet.config.get_config() for direct access to configuration management.
+"""
+
 from pathlib import Path
+from .config import (
+    JET_HOME,
+    XDG_DATA_HOME,
+    get_config,
+)
 
-DEFAULT_CPU = '1:1'
-DEFAULT_MEMORY = '4Gi:4Gi'
-DEFAULT_SCHEDULER = None  # None uses Kubernetes default scheduler
-DEFAULT_PRIORITY = None  # None means no priority class is set
-DEFAULT_RESTART_POLICY = 'Never'
-DEFAULT_JUPYTER_PORT = '8888'
-DEFAULT_BACKOFF_LIMIT = None  # 6 retries by default
-DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED = 1296000  # 15 days
-DEFAULT_JUPYTER_TTL_SECONDS_AFTER_FINISHED = 1296000  # 15 days
-DEFAULT_DEBUG_TTL_SECONDS_AFTER_FINISHED = 21600  # 6 hours
-DEFAULT_DEBUG_JOB_DURATION_SECONDS = 21600  # 6 hours
-# Timeout when waiting for job pods to start when `--follow` is used or when waiting for jupyter or debug pods to start
-DEFAULT_JOB_POD_WAITING_TIMEOUT = 300  # 5 minutes
+# Load configuration
+_config = get_config()
 
-DEFAULT_SHELL = '/bin/bash'
-
-XDG_DATA_HOME = os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")
-JET_HOME = Path(XDG_DATA_HOME) / "jet"
-
+DEFAULT_CPU = _config.get('cpu')
+DEFAULT_MEMORY = _config.get('memory')
+DEFAULT_SCHEDULER = _config.get('scheduler')
+DEFAULT_PRIORITY = _config.get('priority')
+DEFAULT_RESTART_POLICY = _config.get('restart_policy')
+DEFAULT_JUPYTER_PORT = _config.get('jupyter_port')
+DEFAULT_BACKOFF_LIMIT = _config.get('backoff_limit')
+DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED = _config.get('job_ttl_seconds_after_finished')
+DEFAULT_JUPYTER_TTL_SECONDS_AFTER_FINISHED = _config.get('jupyter_ttl_seconds_after_finished')
+DEFAULT_DEBUG_TTL_SECONDS_AFTER_FINISHED = _config.get('debug_ttl_seconds_after_finished')
+DEFAULT_DEBUG_JOB_DURATION_SECONDS = _config.get('debug_job_duration_seconds')
+JUPYTER_HOME_BASE = _config.get('jupyter_home_base')
+DEFAULT_JOB_POD_WAITING_TIMEOUT = _config.get('job_pod_waiting_timeout')
+DEFAULT_SHELL = _config.get('shell')

@@ -9,7 +9,8 @@ from .process_args import ProcessArguments
 from .tui.app import run_tui
 import time
 import signal
-from .defaults import JET_HOME, DEFAULT_JOB_POD_WAITING_TIMEOUT
+from .config import JET_HOME
+from .defaults import DEFAULT_JOB_POD_WAITING_TIMEOUT
 
 
 def get_kubectl_help(command):

@@ -13,7 +13,7 @@ import re
 from collections import defaultdict
 import shutil
 import textwrap
-from .defaults import JET_HOME
+from .config import JET_HOME
 from .k8s_events import K8S_EVENTS
 
 
