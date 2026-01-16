@@ -45,7 +45,7 @@ class ProcessArguments:
 
         return self._generate_specs(
             job_type='job',
-            backoff_limit=None, # Argument currently not implemented, 6 retries by default
+            backoff_limit=self.args.backoff_limit if self.args.backoff_limit is not None else DEFAULT_BACKOFF_LIMIT,
             ttl_seconds_after_finished=DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED # Argument currently not implemented, defaulted to 15 days   
         )
     
