@@ -48,7 +48,7 @@ Perfect for ML engineers and researchers who want to leverage Kubernetes for ML 
 
 ### Dependencies
 
-1. Python 3.8 or higher.
+1. Python 3.8.1 or higher.
 
 2. `kubectl` installed and configured on your local machine. Refer to the [official Kubernetes documentation](https://kubernetes.io/docs/tasks/tools/) for installation instructions.
 
