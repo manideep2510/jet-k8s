@@ -45,7 +45,7 @@ class ProcessArguments:
 
         return self._generate_specs(
             job_type='job',
-            backoff_limit=self.args.backoff_limit if self.args.backoff_limit is not None else DEFAULT_BACKOFF_LIMIT,
+            backoff_limit=self.args.backoff_limit if hasattr(self.args, 'backoff_limit') and self.args.backoff_limit is not None else DEFAULT_BACKOFF_LIMIT,
             ttl_seconds_after_finished=DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED # Argument currently not implemented, defaulted to 15 days   
         )
     
@@ -396,15 +396,24 @@ class ProcessArguments:
                     existing_by_name.pop(conflicting_vol.name)
             existing_by_mount.pop(new_vol.mount_path)
         
-        # Optionally deduplicate by name (for auto-generated volume names like pyenv-volume, jupyter-notebooks-0)
-        if dedupe_by_name and new_vol.name in existing_by_name:
-            conflicting_vol = existing_by_name[new_vol.name]
-            if conflicting_vol in pod_spec.volumes:
-                pod_spec.volumes.remove(conflicting_vol)
-                # Also remove from mount tracking if it was there
-                if conflicting_vol.mount_path and conflicting_vol.mount_path in existing_by_mount:
-                    existing_by_mount.pop(conflicting_vol.mount_path)
-            existing_by_name.pop(new_vol.name)
+        # Handle Name Collisions
+        if new_vol.name in existing_by_name:
+            if dedupe_by_name:
+                # Replace existing volume with same name
+                conflicting_vol = existing_by_name[new_vol.name]
+                if conflicting_vol in pod_spec.volumes:
+                    pod_spec.volumes.remove(conflicting_vol)
+                    # Also remove from mount tracking if it was there
+                    if conflicting_vol.mount_path and conflicting_vol.mount_path in existing_by_mount:
+                        existing_by_mount.pop(conflicting_vol.mount_path)
+                existing_by_name.pop(new_vol.name)
+            else:
+                # Rename the new volume to avoid conflict (Append mode)
+                base_name = new_vol.name
+                counter = 1
+                while f"{base_name}-{counter}" in existing_by_name:
+                    counter += 1
+                new_vol.name = f"{base_name}-{counter}"
         
         # Add new volume and update tracking
         pod_spec.volumes.append(new_vol)
@@ -514,14 +523,14 @@ class ProcessArguments:
         pod_spec.security_context = {
             'runAsUser': os.getuid(),
             'runAsGroup': os.getgid(),
-            'fsGroup': os.getgid(),
+            'supplementalGroups': os.getgroups(),
             'runAsNonRoot': True
         }
         pod_spec.containers[0].security_context = pod_spec.security_context.copy()
+        # Remove supplementalGroups - not applicable to container security context
+        if 'supplementalGroups' in pod_spec.containers[0].security_context:
+            pod_spec.containers[0].security_context.pop('supplementalGroups', None)
         pod_spec.containers[0].security_context['allowPrivilegeEscalation'] = False
-        # Remove fsGroup from container security context as it's not valid there
-        if 'fsGroup' in pod_spec.containers[0].security_context:
-            pod_spec.containers[0].security_context.pop('fsGroup')
 
         # Container Spec
         if not pod_spec.containers:
