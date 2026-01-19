@@ -1,4 +1,5 @@
 import os
+import pwd
 import logging
 import configparser
 from pathlib import Path
@@ -45,7 +46,7 @@ class ProcessArguments:
 
         return self._generate_specs(
             job_type='job',
-            backoff_limit=self.args.backoff_limit if self.args.backoff_limit is not None else DEFAULT_BACKOFF_LIMIT,
+            backoff_limit=self.args.backoff_limit if hasattr(self.args, 'backoff_limit') and self.args.backoff_limit is not None else DEFAULT_BACKOFF_LIMIT,
             ttl_seconds_after_finished=DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED # Argument currently not implemented, defaulted to 15 days   
         )
     
@@ -396,15 +397,24 @@ class ProcessArguments:
                     existing_by_name.pop(conflicting_vol.name)
             existing_by_mount.pop(new_vol.mount_path)
         
-        # Optionally deduplicate by name (for auto-generated volume names like pyenv-volume, jupyter-notebooks-0)
-        if dedupe_by_name and new_vol.name in existing_by_name:
-            conflicting_vol = existing_by_name[new_vol.name]
-            if conflicting_vol in pod_spec.volumes:
-                pod_spec.volumes.remove(conflicting_vol)
-                # Also remove from mount tracking if it was there
-                if conflicting_vol.mount_path and conflicting_vol.mount_path in existing_by_mount:
-                    existing_by_mount.pop(conflicting_vol.mount_path)
-            existing_by_name.pop(new_vol.name)
+        # Handle Name Collisions
+        if new_vol.name in existing_by_name:
+            if dedupe_by_name:
+                # Replace existing volume with same name
+                conflicting_vol = existing_by_name[new_vol.name]
+                if conflicting_vol in pod_spec.volumes:
+                    pod_spec.volumes.remove(conflicting_vol)
+                    # Also remove from mount tracking if it was there
+                    if conflicting_vol.mount_path and conflicting_vol.mount_path in existing_by_mount:
+                        existing_by_mount.pop(conflicting_vol.mount_path)
+                existing_by_name.pop(new_vol.name)
+            else:
+                # Rename the new volume to avoid conflict (Append mode)
+                base_name = new_vol.name
+                counter = 1
+                while f"{base_name}-{counter}" in existing_by_name:
+                    counter += 1
+                new_vol.name = f"{base_name}-{counter}"
         
         # Add new volume and update tracking
         pod_spec.volumes.append(new_vol)
@@ -514,14 +524,14 @@ class ProcessArguments:
         pod_spec.security_context = {
             'runAsUser': os.getuid(),
             'runAsGroup': os.getgid(),
-            'fsGroup': os.getgid(),
+            'supplementalGroups': self._get_user_groups(),
             'runAsNonRoot': True
         }
         pod_spec.containers[0].security_context = pod_spec.security_context.copy()
+        # Remove supplementalGroups - not applicable to container security context
+        if 'supplementalGroups' in pod_spec.containers[0].security_context:
+            pod_spec.containers[0].security_context.pop('supplementalGroups', None)
         pod_spec.containers[0].security_context['allowPrivilegeEscalation'] = False
-        # Remove fsGroup from container security context as it's not valid there
-        if 'fsGroup' in pod_spec.containers[0].security_context:
-            pod_spec.containers[0].security_context.pop('fsGroup')
 
         # Container Spec
         if not pod_spec.containers:
@@ -564,20 +574,14 @@ class ProcessArguments:
 
         # Resources
         if self.args.cpu:
-            req, lim = self.args.cpu.split(':') if ':' in self.args.cpu else (self.args.cpu, self.args.cpu)
+            req, lim = self.args.cpu.split(':') if ':' in self.args.cpu else (self.args.cpu, None)
             container.resources.cpu_request = req
             container.resources.cpu_limit = lim
-        elif not container.resources.cpu_request:
-             container.resources.cpu_request = DEFAULT_CPU.split(':')[0]
-             container.resources.cpu_limit = DEFAULT_CPU.split(':')[1]
 
         if self.args.memory:
-            req, lim = self.args.memory.split(':') if ':' in self.args.memory else (self.args.memory, self.args.memory)
+            req, lim = self.args.memory.split(':') if ':' in self.args.memory else (self.args.memory, None)
             container.resources.memory_request = req
             container.resources.memory_limit = lim
-        elif not container.resources.memory_request:
-             container.resources.memory_request = DEFAULT_MEMORY.split(':')[0]
-             container.resources.memory_limit = DEFAULT_MEMORY.split(':')[1]
 
         if hasattr(self.args, 'gpu') and self.args.gpu:
             container.resources.gpu_count = int(self.args.gpu)
@@ -585,7 +589,7 @@ class ProcessArguments:
         if hasattr(self.args, 'gpu_type') and self.args.gpu_type:
             container.resources.gpu_type = self.args.gpu_type
 
-        # Pyenv - Deduplicate volumes (auto-generated names: pyenv-volume, uv-base-volume)
+        # Pyenv - Deduplicate volumes (auto-generated names: pyenv-volume, pyenv-base-volume)
         if hasattr(self.args, 'pyenv') and self.args.pyenv:
             pyenv_volumes, pyenv_env_vars = self._parse_pyenv_arg(self.args.pyenv)
             for v in pyenv_volumes:
@@ -629,6 +633,10 @@ class ProcessArguments:
 
         return job_config
 
+    def _get_user_groups(self, username=None):
+        username = username or os.getlogin()
+        pw = pwd.getpwnam(username)
+        return os.getgrouplist(username, pw.pw_gid)
 
     def _parse_shm_size_arg(self, shm_size):
         volume_name = 'shm-volume'
@@ -717,15 +725,15 @@ class ProcessArguments:
         if not os.path.isdir(pyenv_arg):
             raise ValueError(f"The provided --pyenv path '{pyenv_arg}' is invalid or does not exist")
 
-        # Env vars and additional volume for uv base path if detected
+        # Env vars and additional volume for uv/venv base path if detected
         files_in_pyenv = os.listdir(pyenv_arg)
         pyenv_env_vars = {}
         if 'conda-meta' in files_in_pyenv:
             pyenv_env_vars = {'CONDA_PREFIX': pyenv_arg}
-            pyenv_env_vars = {'PATH': f"{pyenv_arg}/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+            pyenv_env_vars = {'PATH': f"{pyenv_arg}{DEFAULT_PATH}"}
             
         elif 'pyvenv.cfg' in files_in_pyenv:
-            # Read pyvenv.cfg to get python excecutable base path for mounting
+            # Read pyvenv.cfg to get python executable base path for mounting
             with open(os.path.join(pyenv_arg, 'pyvenv.cfg'), 'r') as f:
                 pyvenv = f.read()
 
@@ -737,12 +745,12 @@ class ProcessArguments:
                 logging.warning("Invalid pyvenv.cfg format for uv or venv env. 'home' key not found.")
                 home_path = None
             python_base = str(Path(home_path).parents[0]) if home_path else None
-            pyenv_volume_details.append({'name': 'uv-base-volume', 'volume_type': 'hostPath',
+            pyenv_volume_details.append({'name': 'pyenv-base-volume', 'volume_type': 'hostPath',
                                         'mount_path': python_base, "read_only": True, 
                                         'details': {'path': python_base, 'type': 'Directory'}})
 
             pyenv_env_vars = {'VIRTUAL_ENV': pyenv_arg}
-            pyenv_env_vars = {'PATH': f"{pyenv_arg}/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+            pyenv_env_vars = {'PATH': f"{pyenv_arg}{DEFAULT_PATH}"}
 
             # Unset PYTHONHOME to avoid conflicts
             pyenv_env_vars.update({'PYTHONHOME': ''})

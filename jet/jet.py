@@ -10,6 +10,7 @@ from .tui.app import run_tui
 import time
 import signal
 from .defaults import JET_HOME, DEFAULT_JOB_POD_WAITING_TIMEOUT
+from . import __version__
 
 
 def get_kubectl_help(command):
@@ -48,6 +49,7 @@ def parse_arguments():
 
     # Note: No default values are set here for any arguments, as defaults are handled in process_args.py based on template or default values.
     parser = argparse.ArgumentParser(description="Jet CLI")
+    parser.add_argument('--version', action='version', version=f'jet {__version__}')
     subparsers = parser.add_subparsers(dest='jet_command')
 
     # Store parser references for printing help when needed
@@ -77,8 +79,8 @@ def parse_arguments():
     job_parser.add_argument('--working-dir', help='Working directory inside the container')
     job_parser.add_argument('--shm-size', help='Size of /dev/shm shared memory')
     job_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
-    job_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
-    job_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: request[:limit]')
+    job_parser.add_argument('--cpu', help='CPU request and limit. Format: [request]:[limit]')
+    job_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: [request]:[limit]')
     job_parser.add_argument('--gpu', help='Number of GPUs to request')
     job_parser.add_argument('--gpu-type', help='Type of GPU to request')
     job_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')
@@ -104,8 +106,8 @@ def parse_arguments():
     jupyter_parser.add_argument('--volume', '-v', action='append', nargs='+', help='Additional volumes to mount. Format: [<volume_name>:]<host_path>[:<mount_path>][:Type]')
     jupyter_parser.add_argument('--shm-size', help='Size of /dev/shm shared memory')
     jupyter_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
-    jupyter_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
-    jupyter_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: request[:limit]')
+    jupyter_parser.add_argument('--cpu', help='CPU request and limit. Format: [request]:[limit]')
+    jupyter_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: [request]:[limit]')
     jupyter_parser.add_argument('--gpu', help='Number of GPUs to request')
     jupyter_parser.add_argument('--gpu-type', help='Type of GPU to request')
     jupyter_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')
@@ -133,8 +135,8 @@ def parse_arguments():
     debug_parser.add_argument('--working-dir', help='Working directory inside the container')
     debug_parser.add_argument('--shm-size', help='Size of /dev/shm shared memory')
     debug_parser.add_argument('--env', nargs='+', action='append', help='Environment variables or env file')
-    debug_parser.add_argument('--cpu', help='CPU request and limit. Format: request[:limit]')
-    debug_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: request[:limit]')
+    debug_parser.add_argument('--cpu', help='CPU request and limit. Format: [request]:[limit]')
+    debug_parser.add_argument('--memory', '--mem', help='Memory request and limit. Format: [request]:[limit]')
     debug_parser.add_argument('--gpu', help='Number of GPUs to request')
     debug_parser.add_argument('--gpu-type', help='Type of GPU to request')
     debug_parser.add_argument('--node-selector', action='append', nargs='+', help='Node selector labels in key=value format')

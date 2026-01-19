@@ -58,8 +58,8 @@ Specify compute resources:
 ```bash
 jet launch debug my-debug \
   --image my-ml-image --duration 3600 \
-  --cpu 4 \
-  --memory 16Gi \
+  --cpu 4:8 \
+  --memory 4Gi:8Gi \
   --gpu 1 \
   --gpu-type a100
 ```
@@ -121,8 +121,8 @@ jet launch debug my-ml-debug \
   --shm-size 8Gi \
   --mount-home \
   --env WANDB_MODE=disabled \
-  --cpu 8 \
-  --memory 32Gi \
+  --cpu 8:16 \
+  --memory 32Gi:64Gi \
   --gpu 1 \
   --gpu-type a100 \
   --verbose

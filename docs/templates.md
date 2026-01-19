@@ -10,8 +10,8 @@ Add `--save-template` to any job launch command to save it as a template instead
 jet launch job my-ml-template \
   --image my-ml-image \
   --pyenv /path/to/venv \
-  --cpu 4 \
-  --memory 16Gi \
+  --cpu 4:8 \
+  --memory 4Gi:8Gi \
   --gpu 1 \
   --volume /datasets:/mnt/datasets \
   --save-template
@@ -67,8 +67,8 @@ jet launch job my-job-template \
 jet launch jupyter my-jupyter-template \
   --image my-image \
   --pyenv /path/to/venv \
-  --cpu 4 \
-  --memory 16Gi \
+  --cpu 4:8 \
+  --memory 4Gi:8Gi \
   --gpu 1 \
   --save-template
 ```
@@ -164,8 +164,8 @@ Templates are stored in `~/.local/share/jet/templates/` or `$XDG_DATA_HOME/jet/t
 jet launch job base-ml-job \
   --image my-ml-image:latest \
   --pyenv /home/user/envs/ml \
-  --cpu 4 \
-  --memory 16Gi \
+  --cpu 4:8 \
+  --memory 4Gi:8Gi \
   --gpu 1 \
   --volume /datasets:/mnt/datasets \
   --shm-size 8Gi \
