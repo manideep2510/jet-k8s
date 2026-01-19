@@ -573,20 +573,14 @@ class ProcessArguments:
 
         # Resources
         if self.args.cpu:
-            req, lim = self.args.cpu.split(':') if ':' in self.args.cpu else (self.args.cpu, self.args.cpu)
+            req, lim = self.args.cpu.split(':') if ':' in self.args.cpu else (self.args.cpu, None)
             container.resources.cpu_request = req
             container.resources.cpu_limit = lim
-        elif not container.resources.cpu_request:
-             container.resources.cpu_request = DEFAULT_CPU.split(':')[0]
-             container.resources.cpu_limit = DEFAULT_CPU.split(':')[1]
 
         if self.args.memory:
-            req, lim = self.args.memory.split(':') if ':' in self.args.memory else (self.args.memory, self.args.memory)
+            req, lim = self.args.memory.split(':') if ':' in self.args.memory else (self.args.memory, None)
             container.resources.memory_request = req
             container.resources.memory_limit = lim
-        elif not container.resources.memory_request:
-             container.resources.memory_request = DEFAULT_MEMORY.split(':')[0]
-             container.resources.memory_limit = DEFAULT_MEMORY.split(':')[1]
 
         if hasattr(self.args, 'gpu') and self.args.gpu:
             container.resources.gpu_count = int(self.args.gpu)
@@ -594,7 +588,7 @@ class ProcessArguments:
         if hasattr(self.args, 'gpu_type') and self.args.gpu_type:
             container.resources.gpu_type = self.args.gpu_type
 
-        # Pyenv - Deduplicate volumes (auto-generated names: pyenv-volume, uv-base-volume)
+        # Pyenv - Deduplicate volumes (auto-generated names: pyenv-volume, pyenv-base-volume)
         if hasattr(self.args, 'pyenv') and self.args.pyenv:
             pyenv_volumes, pyenv_env_vars = self._parse_pyenv_arg(self.args.pyenv)
             for v in pyenv_volumes:
@@ -726,15 +720,15 @@ class ProcessArguments:
         if not os.path.isdir(pyenv_arg):
             raise ValueError(f"The provided --pyenv path '{pyenv_arg}' is invalid or does not exist")
 
-        # Env vars and additional volume for uv base path if detected
+        # Env vars and additional volume for uv/venv base path if detected
         files_in_pyenv = os.listdir(pyenv_arg)
         pyenv_env_vars = {}
         if 'conda-meta' in files_in_pyenv:
             pyenv_env_vars = {'CONDA_PREFIX': pyenv_arg}
-            pyenv_env_vars = {'PATH': f"{pyenv_arg}/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+            pyenv_env_vars = {'PATH': f"{pyenv_arg}{DEFAULT_PATH}"}
             
         elif 'pyvenv.cfg' in files_in_pyenv:
-            # Read pyvenv.cfg to get python excecutable base path for mounting
+            # Read pyvenv.cfg to get python executable base path for mounting
             with open(os.path.join(pyenv_arg, 'pyvenv.cfg'), 'r') as f:
                 pyvenv = f.read()
 
@@ -746,12 +740,12 @@ class ProcessArguments:
                 logging.warning("Invalid pyvenv.cfg format for uv or venv env. 'home' key not found.")
                 home_path = None
             python_base = str(Path(home_path).parents[0]) if home_path else None
-            pyenv_volume_details.append({'name': 'uv-base-volume', 'volume_type': 'hostPath',
+            pyenv_volume_details.append({'name': 'pyenv-base-volume', 'volume_type': 'hostPath',
                                         'mount_path': python_base, "read_only": True, 
                                         'details': {'path': python_base, 'type': 'Directory'}})
 
             pyenv_env_vars = {'VIRTUAL_ENV': pyenv_arg}
-            pyenv_env_vars = {'PATH': f"{pyenv_arg}/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+            pyenv_env_vars = {'PATH': f"{pyenv_arg}{DEFAULT_PATH}"}
 
             # Unset PYTHONHOME to avoid conflicts
             pyenv_env_vars.update({'PYTHONHOME': ''})

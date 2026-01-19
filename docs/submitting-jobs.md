@@ -18,15 +18,15 @@ Specify CPU, memory, and GPU resources:
 jet launch job my-ml-job \
   --image my-ml-image \
   --command "python train.py" \
-  --cpu 4 \
-  --memory 16Gi \
+  --cpu 4:8 \
+  --memory 4Gi:8Gi \
   --gpu 1
 ```
 
 ### Resource Format
 
-- `--cpu`: CPU request and limit. Format: `request[:limit]` (e.g., `4` or `2:4`)
-- `--memory`: Memory request and limit. Format: `request[:limit]` (e.g., `8Gi` or `4Gi:8Gi`)
+- `--cpu`: CPU request and limit. Format: `[request]:[limit]` (e.g., `4` or `2:4`)
+- `--memory`: Memory request and limit. Format: `[request]:[limit]` (e.g., `8Gi` or `4Gi:8Gi`)
 - `--gpu`: Number of GPUs to request
 - `--gpu-type`: Type of GPU (e.g., `a100`, `h100`, `v100`)
 
@@ -218,8 +218,8 @@ jet launch job my-ml-training \
   --command "python train.py --epochs 100" \
   --pyenv /home/user/envs/ml-env \
   --restart-policy OnFailure \
-  --cpu 8 \
-  --memory 32Gi \
+  --cpu 8:16 \
+  --memory 32Gi:64Gi \
   --gpu 2 \
   --gpu-type a100 \
   --node-selector gpu-type=a100 \

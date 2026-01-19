@@ -57,8 +57,8 @@ Specify compute resources for your Jupyter session:
 jet launch jupyter my-jupyter \
   --image my-ml-image \
   --pyenv /path/to/venv \
-  --cpu 4 \
-  --memory 16Gi \
+  --cpu 4:8 \
+  --memory 4Gi:8Gi \
   --gpu 1 \
   --gpu-type a100
 ```
@@ -115,8 +115,8 @@ jet launch jupyter my-ml-notebook \
   --shm-size 8Gi \
   --mount-home \
   --env WANDB_PROJECT=experiments \
-  --cpu 8 \
-  --memory 32Gi \
+  --cpu 8:16 \
+  --memory 32Gi:64Gi \
   --gpu 1 \
   --gpu-type a100 \
   --token my-secret-token \
@@ -151,8 +151,8 @@ Save your Jupyter configuration as a reusable template:
 jet launch jupyter my-jupyter-template \
   --image my-ml-image \
   --pyenv /path/to/venv \
-  --cpu 4 \
-  --memory 16Gi \
+  --cpu 4:8 \
+  --memory 4Gi:8Gi \
   --gpu 1 \
   --save-template
 ```
