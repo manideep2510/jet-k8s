@@ -1,4 +1,5 @@
 import os
+import pwd
 import logging
 import configparser
 from pathlib import Path
@@ -523,7 +524,7 @@ class ProcessArguments:
         pod_spec.security_context = {
             'runAsUser': os.getuid(),
             'runAsGroup': os.getgid(),
-            'supplementalGroups': os.getgroups(),
+            'supplementalGroups': self._get_user_groups(),
             'runAsNonRoot': True
         }
         pod_spec.containers[0].security_context = pod_spec.security_context.copy()
@@ -632,6 +633,10 @@ class ProcessArguments:
 
         return job_config
 
+    def _get_user_groups(self, username=None):
+        username = username or os.getlogin()
+        pw = pwd.getpwnam(username)
+        return os.getgrouplist(username, pw.pw_gid)
 
     def _parse_shm_size_arg(self, shm_size):
         volume_name = 'shm-volume'
