@@ -61,6 +61,14 @@ Jet can be installed using pip from PyPI:
 pip install jet-k8s
 ```
 
+Verify the installation:
+
+```bash
+jet --version
+
+jet --help
+```
+
 ## Usage
 After installation, you can use the `jet` command in your terminal. Here are some basic commands:
 

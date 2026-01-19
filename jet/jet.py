@@ -10,6 +10,7 @@ from .tui.app import run_tui
 import time
 import signal
 from .defaults import JET_HOME, DEFAULT_JOB_POD_WAITING_TIMEOUT
+from . import __version__
 
 
 def get_kubectl_help(command):
@@ -48,6 +49,7 @@ def parse_arguments():
 
     # Note: No default values are set here for any arguments, as defaults are handled in process_args.py based on template or default values.
     parser = argparse.ArgumentParser(description="Jet CLI")
+    parser.add_argument('--version', action='version', version=f'jet {__version__}')
     subparsers = parser.add_subparsers(dest='jet_command')
 
     # Store parser references for printing help when needed
