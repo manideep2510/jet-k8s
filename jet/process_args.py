@@ -1,5 +1,6 @@
 import os
 import pwd
+import subprocess
 import logging
 import configparser
 from pathlib import Path
@@ -709,8 +710,8 @@ class ProcessArguments:
         """
         Mount the provided pyenv path to the same path inside the container
         If conda env is provided, set CONDA_PREFIX env variable to the pyenv path. Python executable is automatically picked from conda env.
-        If venv or uv env is provided, set VIRTUAL_ENV env variable to the pyenv path. Python executable base path is automatically picked 
-        from uv/venv env pyvenv.cfg and mounted as a volume. 
+        If uv env is provided, set VIRTUAL_ENV env variable to the pyenv path. Python executable base path is automatically picked 
+        from uv env pyvenv.cfg and mounted as a volume. 
         Set PATH env variable to include the pyenv bin directory
         """
         pyenv_volume_details = []
@@ -725,12 +726,12 @@ class ProcessArguments:
         if not os.path.isdir(pyenv_arg):
             raise ValueError(f"The provided --pyenv path '{pyenv_arg}' is invalid or does not exist")
 
-        # Env vars and additional volume for uv/venv base path if detected
+        # Env vars and additional volume for uv env base path if detected
         files_in_pyenv = os.listdir(pyenv_arg)
         pyenv_env_vars = {}
         if 'conda-meta' in files_in_pyenv:
-            pyenv_env_vars = {'CONDA_PREFIX': pyenv_arg}
-            pyenv_env_vars = {'PATH': f"{pyenv_arg}{DEFAULT_PATH}"}
+            pyenv_env_vars['CONDA_PREFIX'] = pyenv_arg
+            pyenv_env_vars['PATH'] = f"{pyenv_arg}/bin:{DEFAULT_PATH}"
             
         elif 'pyvenv.cfg' in files_in_pyenv:
             # Read pyvenv.cfg to get python executable base path for mounting
@@ -739,24 +740,65 @@ class ProcessArguments:
 
             config_parser = configparser.ConfigParser()
             config_parser.read_string("[header]\n" + pyvenv)
-            try:
-                home_path = config_parser["header"]["home"]
-            except KeyError:
-                logging.warning("Invalid pyvenv.cfg format for uv or venv env. 'home' key not found.")
-                home_path = None
-            python_base = str(Path(home_path).parents[0]) if home_path else None
-            pyenv_volume_details.append({'name': 'pyenv-base-volume', 'volume_type': 'hostPath',
-                                        'mount_path': python_base, "read_only": True, 
-                                        'details': {'path': python_base, 'type': 'Directory'}})
 
-            pyenv_env_vars = {'VIRTUAL_ENV': pyenv_arg}
-            pyenv_env_vars = {'PATH': f"{pyenv_arg}{DEFAULT_PATH}"}
+            # Validate it's a uv environment
+            if 'uv' not in config_parser["header"]:
+                raise ValueError(
+                    "Unsupported pyenv type. Only conda and uv environments are supported. "
+                    "Detected a standard venv (pyvenv.cfg without 'uv' key)."
+                )
+
+            # Get home path (required for uv envs)
+            if 'home' not in config_parser["header"]:
+                raise ValueError(
+                    f"Invalid uv pyvenv.cfg format: 'home' key not found in {pyenv_arg}/pyvenv.cfg"
+                )
+            
+            home_path = config_parser["header"]["home"]
+            # python_dir is "$UV_HOME/uv/python"
+            python_dir = str(Path(home_path).parents[1]) if home_path else None
+
+            pyenv_volume_details.append({'name': 'pyenv-base-volume', 'volume_type': 'hostPath',
+                                        'mount_path': python_dir, "read_only": True, 
+                                        'details': {'path': python_dir, 'type': 'Directory'}})
+            
+            # TODO: Set UV_HOME, UV_PYTHON_INSTALL_DIR, UV_TOOL_DIR, UV_TOOL_BIN_DIR and update PATH with UV_TOOL_BIN_DIR
+            # Set UV_CACHE_DIR and mount if exists
+            uv_cache_dir = None
+            if 'UV_CACHE_DIR' in os.environ:
+                uv_cache_dir = os.environ['UV_CACHE_DIR']
+            else:
+                try:
+                    result = subprocess.run(
+                        ['uv', 'cache', 'dir'], 
+                        capture_output=True, 
+                        text=True, 
+                        timeout=5
+                    )
+                    if result.returncode == 0:
+                        uv_cache_dir = result.stdout.strip()
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
+            if not uv_cache_dir:
+                uv_cache_dir = str(Path(XDG_CACHE_HOME) / "uv")
+
+            if os.path.exists(uv_cache_dir):
+                uv_cache_volume_name = 'uv-cache-volume'
+                pyenv_volume_details.append({'name': uv_cache_volume_name, 'volume_type': 'hostPath',
+                                            'mount_path': uv_cache_dir,
+                                            'details': {'path': uv_cache_dir, 'type': 'Directory'}})
+            else:
+                raise ValueError(f"UV cache directory '{uv_cache_dir}' does not exist. Please create it or set UV_CACHE_DIR environment variable.")
+
+            pyenv_env_vars['UV_CACHE_DIR'] = uv_cache_dir
+            pyenv_env_vars['VIRTUAL_ENV'] = pyenv_arg
+            pyenv_env_vars['PATH'] = f"{pyenv_arg}/bin:{DEFAULT_PATH}"
 
             # Unset PYTHONHOME to avoid conflicts
-            pyenv_env_vars.update({'PYTHONHOME': ''})
+            pyenv_env_vars['PYTHONHOME'] = ''
 
         else:
-            raise ValueError("Unsupported pyenv type. Supported envs are: conda, venv, uv, poetry, etc. detected by presence of conda-meta or pyvenv.cfg in the provided path.")
+            raise ValueError("Unsupported pyenv type. Supported envs are: conda, and uv. detected by presence of conda-meta or pyvenv.cfg (with 'uv' key) in the provided path.")
 
         # Set PS1 to indicate pyenv is active in the container shell
         # ps1 = f"({os.path.basename(pyenv_arg)}) \\u@\\h:\\w$ "

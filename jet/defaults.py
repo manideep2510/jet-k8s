@@ -16,8 +16,9 @@ DEFAULT_DEBUG_JOB_DURATION_SECONDS = 21600  # 6 hours
 DEFAULT_JOB_POD_WAITING_TIMEOUT = 300  # 5 minutes
 
 DEFAULT_SHELL = '/bin/bash'
-DEFAULT_PATH = '/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+DEFAULT_PATH = '/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 
 XDG_DATA_HOME = os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")
 JET_HOME = Path(XDG_DATA_HOME) / "jet"
 
+XDG_CACHE_HOME = os.getenv("XDG_CACHE_HOME", Path.home() / ".cache")
