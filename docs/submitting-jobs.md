@@ -115,6 +115,16 @@ jet launch job my-job \
 
 Options: `IfNotPresent`, `Always`, `Never`
 
+### Image Pull Secrets
+Specify image pull secrets for private registries:
+
+```bash
+jet launch job my-job \
+  --image my-private-image \
+  --image-pull-secrets my-secret1 my-secret2 \
+  --command "python train.py"
+```
+
 ### Restart Policy
 
 Set the pod restart policy:
