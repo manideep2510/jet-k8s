@@ -491,6 +491,16 @@ class ProcessArguments:
 
         if active_deadline_seconds is not None:
             pod_spec.active_deadline_seconds = active_deadline_seconds
+
+        # Image Pull Secrets
+        if hasattr(self.args, 'image_pull_secrets') and self.args.image_pull_secrets:
+            secrets = [s for sublist in self.args.image_pull_secrets for s in sublist]
+            # Merge with existing, avoiding duplicates
+            existing_secrets = set(pod_spec.image_pull_secrets)
+            for secret in secrets:
+                if secret not in existing_secrets:
+                    pod_spec.image_pull_secrets.append(secret)
+                    existing_secrets.add(secret)
         
         # Node Selectors
         if self.args.node_selector:

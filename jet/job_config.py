@@ -72,6 +72,7 @@ class PodSpec:
     volumes: List[VolumeSpec] = field(default_factory=list)
     containers: List[ContainerSpec] = field(default_factory=list)
     security_context: Dict[str, Any] = field(default_factory=dict)
+    image_pull_secrets: List[str] = field(default_factory=list)
 
     def validate(self):
         valid_policies = ['Always', 'OnFailure', 'Never']
@@ -204,6 +205,9 @@ class JobConfig:
                 resources=resources
             ))
 
+        # Parse imagePullSecrets
+        image_pull_secrets = [s['name'] for s in template_spec_data.get('imagePullSecrets', [])]
+
         pod_spec = PodSpec(
             scheduler=template_spec_data.get('schedulerName'),
             priority_class_name=template_spec_data.get('priorityClassName'),
@@ -212,7 +216,8 @@ class JobConfig:
             active_deadline_seconds=template_spec_data.get('activeDeadlineSeconds'),
             volumes=volumes,
             containers=containers,
-            security_context=template_spec_data.get('securityContext', {})
+            security_context=template_spec_data.get('securityContext', {}),
+            image_pull_secrets=image_pull_secrets
         )
 
         job_spec = JobSpec(
@@ -295,6 +300,8 @@ class JobConfig:
             pod_spec_dict['activeDeadlineSeconds'] = self.spec.template_spec.active_deadline_seconds
         if self.spec.template_spec.security_context:
             pod_spec_dict['securityContext'] = self.spec.template_spec.security_context
+        if self.spec.template_spec.image_pull_secrets:
+            pod_spec_dict['imagePullSecrets'] = [{'name': s} for s in self.spec.template_spec.image_pull_secrets]
         if k8s_volumes:
             pod_spec_dict['volumes'] = k8s_volumes
         pod_spec_dict['containers'] = k8s_containers
