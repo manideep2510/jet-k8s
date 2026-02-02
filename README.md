@@ -110,11 +110,11 @@ For example, to label a node with an A100 GPU, you can use:
 
    - **Requirements:**
 
-      - **Shared storage**: The venv directory must be accessible at the same path on the node where the pod runs. This works automatically with single-node clusters or shared storage (NFS, BeeGFS), but may not work on multi-node clusters without shared storage.
+      - **Shared storage**: The env directory must be accessible at the same path on the node where the pod runs. This works automatically with single-node clusters or shared storage (NFS, BeeGFS), but may not work on multi-node clusters without shared storage.
 
-      - **Python compatibility**: The venv's Python executable (read from `pyvenv.cfg`) must be available inside the container. This works if:
-         - The container image has Python installed at the same path (e.g., `/usr/bin/python3.x` for system Python venvs), or
-         - The venv includes its own Python rather than system Python (e.g., venvs created with `uv` or `conda` using a specific Python version).
+      - **Python compatibility**: The env's Python executable (read from `pyvenv.cfg`) must be available inside the container. This works if:
+         - The container image has Python installed at the same path (e.g., `/usr/bin/python3.x` for system Python envs), or
+         - The env includes its own Python rather than system Python (e.g., envs created with `uv` or `conda` using a specific Python version).
 
 ## TODOs:
 

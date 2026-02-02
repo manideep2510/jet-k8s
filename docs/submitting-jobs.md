@@ -55,7 +55,7 @@ Examples:
 
 ## Job with Python Environment
 
-Mount a Python virtual environment (venv, conda, or uv):
+Mount a Python virtual environment (conda, or uv):
 
 ```bash
 jet launch job my-job \
