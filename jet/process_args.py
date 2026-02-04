@@ -455,7 +455,12 @@ class ProcessArguments:
         
         if self.args.namespace:
             job_config.metadata.namespace = self.args.namespace
-        
+
+        # Job Labels - merge CLI labels with existing (CLI overrides template)
+        if hasattr(self.args, 'job_labels') and self.args.job_labels:
+            cli_job_labels = {i.split('=')[0]: i.split('=')[1] for sublist in self.args.job_labels for i in sublist}
+            job_config.metadata.labels.update(cli_job_labels)
+
         # Priority - use standard K8s priorityClassName in pod spec
         # Only set if explicitly provided via CLI or template
         if hasattr(self.args, 'priority') and self.args.priority:
@@ -506,9 +511,14 @@ class ProcessArguments:
         if self.args.node_selector:
             cli_selectors = {i.split('=')[0]:i.split('=')[1] for sublist in self.args.node_selector for i in sublist}
             pod_spec.node_selectors.update(cli_selectors)
-        
+
         if hasattr(self.args, 'gpu_type') and self.args.gpu_type:
             pod_spec.node_selectors['gpu-type'] = self.args.gpu_type
+
+        # Pod Labels - merge CLI labels with existing (CLI overrides template)
+        if hasattr(self.args, 'pod_labels') and self.args.pod_labels:
+            cli_pod_labels = {i.split('=')[0]: i.split('=')[1] for sublist in self.args.pod_labels for i in sublist}
+            pod_spec.labels.update(cli_pod_labels)
 
         # Volumes - Deduplicate by name and mount_path (CLI args override template)
         # Build a map of existing volumes from template
