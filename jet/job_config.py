@@ -73,6 +73,7 @@ class PodSpec:
     containers: List[ContainerSpec] = field(default_factory=list)
     security_context: Dict[str, Any] = field(default_factory=dict)
     image_pull_secrets: List[str] = field(default_factory=list)
+    labels: Dict[str, str] = field(default_factory=dict)  # Pod template metadata labels
 
     def validate(self):
         valid_policies = ['Always', 'OnFailure', 'Never']
@@ -134,7 +135,9 @@ class JobConfig:
 
         # Parse Spec
         spec_data = data.get('spec', {})
-        template_spec_data = spec_data.get('template', {}).get('spec', {})
+        template_data = spec_data.get('template', {})
+        template_spec_data = template_data.get('spec', {})
+        template_metadata = template_data.get('metadata', {})
 
         # Parse Volumes
         volumes = []
@@ -217,7 +220,8 @@ class JobConfig:
             volumes=volumes,
             containers=containers,
             security_context=template_spec_data.get('securityContext', {}),
-            image_pull_secrets=image_pull_secrets
+            image_pull_secrets=image_pull_secrets,
+            labels=template_metadata.get('labels', {})
         )
 
         job_spec = JobSpec(
@@ -312,7 +316,12 @@ class JobConfig:
             job_spec_dict['backoffLimit'] = self.spec.backoff_limit
         if self.spec.ttl_seconds_after_finished is not None:
             job_spec_dict['ttlSecondsAfterFinished'] = self.spec.ttl_seconds_after_finished
-        job_spec_dict['template'] = {'spec': pod_spec_dict}
+
+        # Build template with pod spec and metadata (for pod labels)
+        template_dict = {'spec': pod_spec_dict}
+        if self.spec.template_spec.labels:
+            template_dict['metadata'] = {'labels': self.spec.template_spec.labels}
+        job_spec_dict['template'] = template_dict
 
         # Metadata
         metadata_dict = {'name': self.metadata.name}
