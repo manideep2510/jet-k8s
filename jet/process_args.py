@@ -6,7 +6,7 @@ import configparser
 from pathlib import Path
 import yaml
 from .utils import TemplateManager
-from .job_config import JobConfig, JobMetadata, JobSpec, PodSpec, ContainerSpec, VolumeSpec, ResourceSpec
+from .job_config import JobConfig, JobMetadata, JobSpec, PodSpec, ContainerSpec, VolumeSpec, ResourceSpec, ServiceConfig, ServicePortSpec
 from .defaults import *
 
 
@@ -23,6 +23,8 @@ class ProcessArguments:
                 return self._process_launch_jupyter()
             elif self.args.launch_type == 'debug':
                 return self._process_launch_debug()
+            elif self.args.launch_type in ['service', 'svc']:
+                return self._process_launch_service()
         elif self.args.jet_command == 'list':
             if self.args.list_type in ['templates', 'template', 'te', 't']:
                 return self._process_list_templates()
@@ -116,6 +118,62 @@ class ProcessArguments:
             command_override=debug_command,
             active_deadline_seconds=active_deadline_seconds
         )
+
+    def _process_launch_service(self):
+        """Process service launch arguments and create a simple ClusterIP Service."""
+        
+        # Parse selector labels (required)
+        selector = {}
+        for selector_list in self.args.selector:
+            for s in selector_list:
+                if '=' in s:
+                    key, value = s.split('=', 1)
+                    selector[key] = value
+                else:
+                    raise ValueError(f"Invalid selector format: {s}. Use key=value format.")
+        
+        # Parse ports - format: service_port:target_port
+        # target_port can be int or named port (string)
+        ports = []
+        unnamed_port_counter = 0
+        
+        for port_str in self.args.port:
+            if ':' in port_str:
+                parts = port_str.split(':', 1)
+                service_port = int(parts[0])
+                # target_port can be int or named port string
+                target_port_str = parts[1]
+                target_port = int(target_port_str) if target_port_str.isdigit() else target_port_str
+            else:
+                service_port = int(port_str)
+                target_port = service_port
+            
+            # Auto-name ports: 80->http, 443->https, rest->port-0, port-1, etc.
+            if service_port == 80:
+                port_name = 'http'
+            elif service_port == 443:
+                port_name = 'https'
+            else:
+                port_name = f'port-{unnamed_port_counter}'
+                unnamed_port_counter += 1
+            
+            ports.append(ServicePortSpec(
+                port=service_port,
+                target_port=target_port,
+                name=port_name
+            ))
+        
+        # Create ServiceConfig
+        service_config = ServiceConfig(
+            name=self.args.name,
+            selector=selector,
+            ports=ports,
+            namespace=self.args.namespace if hasattr(self.args, 'namespace') else None,
+            dry_run=self.args.dry_run if hasattr(self.args, 'dry_run') else False,
+            verbose=self.args.verbose if hasattr(self.args, 'verbose') else False
+        )
+        
+        return service_config
     
     def _process_list_templates(self):
         job_type = self.args.type if self.args.type else None

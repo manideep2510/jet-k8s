@@ -114,41 +114,44 @@ def get_current_namespace(kubeconfig=None):
     
     return "default"
 
-def print_job_yaml(job_yaml, dry_run=False, verbose=False):
+def print_job_yaml(job_yaml, dry_run=False, verbose=False, resource_type='job'):
     """
-    Print the YAML representation of a Kubernetes job configuration.
+    Print the YAML representation of a Kubernetes resource configuration.
 
     Args:
-        job_yaml (str): YAML representation of the Kubernetes job configuration.
-        dry_run (bool): If True, indicates a dry run (no job submission).
+        job_yaml (str): YAML representation of the Kubernetes resource configuration.
+        dry_run (bool): If True, indicates a dry run (no resource submission).
         verbose (bool): If True, indicates verbose mode.
+        resource_type (str): Type of resource (e.g., 'job', 'service'). Default is 'job'.
     """
+    resource_name = resource_type.capitalize()
     if dry_run:
         print("=" * 80)
-        print("Dry run: Not submitting job.\nJob spec would be:")
+        print(f"Dry run: Not submitting {resource_type}.\n{resource_name} spec would be:")
         print("=" * 80)
         print(job_yaml)
         print("=" * 80 + "\n")
     elif verbose:
         print("=" * 80)
-        print("Verbose mode: Job spec:")
+        print(f"Verbose mode: {resource_name} spec:")
         print("=" * 80)
         print(job_yaml)
         print("=" * 80 + "\n")
     else:
         pass
 
-def submit_job(job_config, dry_run=False, verbose=False):
+def submit_job(job_config, dry_run=False, verbose=False, resource_type='job'):
 
     job_yaml = yaml.dump(job_config, sort_keys=False, default_flow_style=False)
 
-    print_job_yaml(job_yaml, dry_run=dry_run, verbose=verbose)
+    print_job_yaml(job_yaml, dry_run=dry_run, verbose=verbose, resource_type=resource_type)
     if dry_run:
         return
 
-    # TODO: Check if there is no existing job with the same name and all its pods are terminated
+    # TODO: Check if there is no existing resource with the same name and all its pods are terminated
 
-    # Submit the job
+    # Submit the resource
+    resource_name = resource_type.capitalize()
     try:
         result = subprocess.run(
             ['kubectl', 'apply', '-f', '-'],
@@ -160,26 +163,26 @@ def submit_job(job_config, dry_run=False, verbose=False):
         if result.returncode == 0:
             if "created" in result.stdout:
                 print(
-                    f"\nJob \x1b[1;32m{job_config['metadata']['name']}\x1b[0m created in namespace \x1b[38;5;245m{job_config['metadata'].get('namespace', 'default')}\x1b[0m\n"
+                    f"\n{resource_name} \x1b[1;32m{job_config['metadata']['name']}\x1b[0m created in namespace \x1b[38;5;245m{job_config['metadata'].get('namespace', 'default')}\x1b[0m\n"
                 )
             elif "configured" in result.stdout:
                 print(result.stdout)
             else:
                 print(result.stdout)
-            # TODO: Handle immutable fields error (gracefully ask user to delete and recreate job). Add a custom exception class for this.
+            # TODO: Handle immutable fields error (gracefully ask user to delete and recreate resource). Add a custom exception class for this.
         else:
             raise Exception(result.stderr)
         
-        # # Create job using kr8s
+        # # Create resource using kr8s
         # job = Job(resource=job_config, namespace=job_config['metadata'].get('namespace', 'default'))
         # job.create()
         
         # print(
-        #     f"\nJob \x1b[1;32m{job_config['metadata']['name']}\x1b[0m created in namespace \x1b[38;5;245m{job_config['metadata'].get('namespace', 'default')}\x1b[0m\n"
+        #     f"\n{resource_name} \x1b[1;32m{job_config['metadata']['name']}\x1b[0m created in namespace \x1b[38;5;245m{job_config['metadata'].get('namespace', 'default')}\x1b[0m\n"
         # )
 
     except Exception as e:
-        raise Exception(f"Error submitting job with subprocess: {e}")
+        raise Exception(f"Error submitting {resource_type} with subprocess: {e}")
 
 def delete_resource(name, resource_type, namespace=None, kubectl_args=None):
     """
