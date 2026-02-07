@@ -22,3 +22,6 @@ XDG_DATA_HOME = os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")
 JET_HOME = Path(XDG_DATA_HOME) / "jet"
 
 XDG_CACHE_HOME = os.getenv("XDG_CACHE_HOME", Path.home() / ".cache")
+
+KUBE_STATE_METRICS_URL = "http://localhost:30080/metrics"
+PROMETHEUS_URL = None
