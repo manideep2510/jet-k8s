@@ -155,6 +155,16 @@ def parse_arguments():
     debug_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and other debug info will be printed')
     debug_parser.add_argument('--save-template', '-st', action='store_true', help='If provided, job yaml will be saved to ~/.local/share/jet/templates/ or $XDG_DATA_HOME/jet/templates/')
 
+    # Launch Service (simple ClusterIP Service to expose pods)
+    service_parser = launch_subparsers.add_parser('service', aliases=['svc'], help='Create a ClusterIP Service to expose pods by label selector. TCP protocol is used by default.')
+    service_parser.add_argument('name', help='Name of the service (also used as DNS endpoint)')
+    parser._subparsers_map['launch_service'] = service_parser
+    service_parser.add_argument('--selector', '-s', action='append', nargs='+', required=True, help='Pod selector labels in key=value format (e.g., app=my-app). Required.')
+    service_parser.add_argument('--port', '-p', action='append', required=True, help='Port mapping. Format: <service_port>[:<target_port>]. Can be specified multiple times. target_port can be a number or named port. Example: -p 80:8000 -p 443:https')
+    service_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
+    service_parser.add_argument('--dry-run', action='store_true', help='If provided, YAML will be printed but not submitted')
+    service_parser.add_argument('--verbose', action='store_true', help='If provided, YAML will be printed')
+
     # List command
     list_parser = subparsers.add_parser('list', help='List resources (templates, jobs, or pods). Defaults to listing jobs if no subcommand is provided.')
     list_parser.add_argument('--namespace', '-n', help='Kubernetes namespace (used when listing jobs or pods)')
@@ -489,6 +499,35 @@ class Jet():
                 namespace=namespace
             )
 
+    def launch_service(self):
+        """Launch a simple ClusterIP Service."""
+        service_config = self.processed_args
+        
+        # Set namespace from args or kubectl context
+        if not service_config.namespace:
+            service_config.namespace = self.set_namespace
+        
+        # Submit the service using the same utility as jobs
+        submit_job(
+            job_config=service_config.to_dict(),
+            dry_run=service_config.dry_run,
+            verbose=service_config.verbose,
+            resource_type='service'
+        )
+        
+        if service_config.dry_run:
+            return
+        
+        if service_config.verbose:
+            # Print access information
+            dns_name = service_config.name
+            fqdn = f"{service_config.name}.{service_config.namespace}.svc.cluster.local"
+            print(f"Service DNS: {dns_name} (same namespace) or {fqdn} (cross-namespace)")
+            print(f"Service endpoints:")
+            for port in service_config.ports:
+                print(f"  <DNS>:{port.port}")
+            print(f"Selector: {service_config.selector}")
+
     def list_templates(self):
         self.template_manager.print_templates(
             job_type=self.processed_args['job_type'],
@@ -591,6 +630,8 @@ def run(args, command, subcommand=None):
             jet.launch_jupyter()
         elif subcommand == 'debug':
             jet.launch_debug()
+        elif subcommand in ['service', 'svc']:
+            jet.launch_service()
     elif command == 'list':
         if subcommand in ['templates', 'template', 'te', 't']:
             jet.list_templates()
@@ -620,7 +661,7 @@ def cli():
         if args.jet_command is None:
             return print_help_and_exit(parser)
 
-        # Handle case when 'launch' is provided but no subcommand (job/jupyter/debug)
+        # Handle case when 'launch' is provided but no subcommand (job/jupyter/debug/service)
         if args.jet_command == 'launch' and (not hasattr(args, 'launch_type') or args.launch_type is None):
             return print_help_and_exit(parser, 'launch')
 
@@ -628,6 +669,11 @@ def cli():
         if args.jet_command == 'launch' and args.launch_type in ['job', 'jupyter', 'debug']:
             if not hasattr(args, 'name') or args.name is None:
                 return print_help_and_exit(parser, f'launch_{args.launch_type}')
+
+        # Handle case when 'launch service/svc' is provided but no name
+        if args.jet_command == 'launch' and args.launch_type in ['service', 'svc']:
+            if not hasattr(args, 'name') or args.name is None:
+                return print_help_and_exit(parser, 'launch_service')
 
         # Handle case when 'logs' is provided but no arguments
         if args.jet_command == 'logs' and (not hasattr(args, 'logs_args') or not args.logs_args):

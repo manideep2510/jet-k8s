@@ -11,6 +11,7 @@ Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubern
 - 📄 **Work with Templates** - Save custom job templates to standardize and simplify job configurations, making your experiments reproducible.
 - 📓 **Jupyter Integration** - Launch Jupyter notebooks on Kubernetes with automatic port forwarding.
 - 🐛 **Debug Sessions** - Spin up interactive debug pods for quick troubleshooting.
+- 🛠️ **Creating Services** - Easily create and manage Kubernetes services to expose your applications.
 - 🤖 **ML Focused** - Designed with Python machine learning workloads and data processing tasks in mind.
 
 ## Overview
@@ -21,8 +22,52 @@ Jet eliminates the complexity of Kubernetes YAML configuration files, providing 
 - Running interactive Jupyter notebook sessions on Kubernetes with automatic port forwarding.
 - Creating interactive shell debug environments for troubleshooting and debugging.
 - Automatic job cleanup for Jupyter and debug sessions.
-
+- Easily create and manage Kubernetes services to expose your applications.
 Perfect for ML engineers and researchers who want to leverage Kubernetes for ML training, inference and experimentation jobs without the YAML overhead.
+
+## Installation
+
+### Dependencies
+
+1. Python 3.8.1 or higher.
+
+2. `kubectl` installed and configured on your local machine. Refer to the [official Kubernetes documentation](https://kubernetes.io/docs/tasks/tools/) for installation instructions.
+
+3. A running Kubernetes cluster, with kubeconfig properly set up to access the cluster from your local machine.
+ 
+### Install Jet
+Jet can be installed using pip from PyPI:
+
+```bash
+pip install jet-k8s
+```
+
+Installing as a `uv` tool:
+
+```bash
+uv tool install jet-k8s
+```
+
+Verify the installation:
+
+```bash
+jet --version
+
+jet --help
+```
+
+## Usage
+After installation, you can use the `jet` command in your terminal. Here are some basic commands:
+
+Please refer to the following sections for detailed user guides.
+
+- [Submitting Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/submitting-jobs.md)
+- [Starting Jupyter Notebook Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/jupyter-notebooks.md)
+- [Starting Debug Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/debug-sessions.md)
+- [Creating Services](https://github.com/manideep2510/jet-k8s/blob/main/docs/services.md)
+- [Using Job Templates](https://github.com/manideep2510/jet-k8s/blob/main/docs/templates.md)
+- [Monitoring Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/monitoring-jobs.md)
+- [Other Commands](https://github.com/manideep2510/jet-k8s/blob/main/docs/other-commands.md)
 
 ## Demos 
 
@@ -43,43 +88,6 @@ Perfect for ML engineers and researchers who want to leverage Kubernetes for ML 
 
 ### Saving and Using Job Templates
 [![templates](https://github.com/manideep2510/jet-k8s/raw/main/assets/job-templates.gif)](https://asciinema.org/a/ECWaEYWkT2fJfQHy4zXkow1tP)
-
-## Installation
-
-### Dependencies
-
-1. Python 3.8.1 or higher.
-
-2. `kubectl` installed and configured on your local machine. Refer to the [official Kubernetes documentation](https://kubernetes.io/docs/tasks/tools/) for installation instructions.
-
-3. A running Kubernetes cluster, with kubeconfig properly set up to access the cluster from your local machine.
- 
-### Install Jet
-Jet can be installed using pip from PyPI:
-
-```bash
-pip install jet-k8s
-```
-
-Verify the installation:
-
-```bash
-jet --version
-
-jet --help
-```
-
-## Usage
-After installation, you can use the `jet` command in your terminal. Here are some basic commands:
-
-Please refer to the following sections for detailed user guides.
-
-- [Submitting Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/submitting-jobs.md)
-- [Starting Jupyter Notebook Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/jupyter-notebooks.md)
-- [Starting Debug Sessions](https://github.com/manideep2510/jet-k8s/blob/main/docs/debug-sessions.md)
-- [Using Job Templates](https://github.com/manideep2510/jet-k8s/blob/main/docs/templates.md)
-- [Monitoring Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/monitoring-jobs.md)
-- [Other Commands](https://github.com/manideep2510/jet-k8s/blob/main/docs/other-commands.md)
 
 ## Why Jobs?
 

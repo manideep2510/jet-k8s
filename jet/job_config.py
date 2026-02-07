@@ -1,7 +1,7 @@
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
-import yaml
 import logging
+
 
 @dataclass
 class ResourceSpec:
@@ -338,3 +338,69 @@ class JobConfig:
             'metadata': metadata_dict,
             'spec': job_spec_dict
         }
+
+
+# ==================== Service Configuration ====================
+
+@dataclass
+class ServicePortSpec:
+    """Represents a service port configuration."""
+    port: int  # Service port
+    target_port: Any  # Container/Pod port (int or named port string)
+    name: Optional[str] = None
+    protocol: str = 'TCP'
+
+
+@dataclass 
+class ServiceConfig:
+    """Simple Service configuration."""
+    name: str
+    selector: Dict[str, str]  # Pod selector labels (e.g., {'app': 'my-app'})
+    ports: List[ServicePortSpec]
+    namespace: Optional[str] = None
+    
+    # CLI control
+    dry_run: bool = False
+    verbose: bool = False
+
+    def validate(self):
+        if not self.selector:
+            raise ValueError("Selector labels are required for the service")
+        if not self.ports:
+            raise ValueError("At least one port must be specified")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to Kubernetes Service YAML structure."""
+        self.validate()
+        
+        # Ports
+        k8s_ports = []
+        for i, port in enumerate(self.ports):
+            port_dict = {}
+            if port.name:
+                port_dict['name'] = port.name
+            elif len(self.ports) > 1:
+                port_dict['name'] = f'port-{i}'
+
+            port_dict.update({
+                'protocol': port.protocol,
+                'port': port.port,
+                'targetPort': port.target_port
+            })
+            k8s_ports.append(port_dict)
+
+        # Metadata
+        metadata_dict = {'name': self.name}
+        if self.namespace:
+            metadata_dict['namespace'] = self.namespace
+
+        return {
+            'apiVersion': 'v1',
+            'kind': 'Service',
+            'metadata': metadata_dict,
+            'spec': {
+                'selector': self.selector,
+                'ports': k8s_ports
+            }
+        }
+
