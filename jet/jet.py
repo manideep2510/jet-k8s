@@ -163,7 +163,7 @@ def parse_arguments():
     service_parser.add_argument('--port', '-p', action='append', required=True, help='Port mapping. Format: <service_port>[:<target_port>]. Can be specified multiple times. target_port can be a number or named port. Example: -p 80:8000 -p 443:https')
     service_parser.add_argument('--namespace', '-n', help='Kubernetes namespace')
     service_parser.add_argument('--dry-run', action='store_true', help='If provided, YAML will be printed but not submitted')
-    service_parser.add_argument('--verbose', action='store_true', help='If provided, YAML will be printed')
+    service_parser.add_argument('--verbose', action='store_true', help='If provided, YAML and service details will be printed')
 
     # List command
     list_parser = subparsers.add_parser('list', help='List resources (templates, jobs, or pods). Defaults to listing jobs if no subcommand is provided.')
