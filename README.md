@@ -8,6 +8,7 @@ Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubern
 
 - 🚀 **Simplified Job Submission** - Define and submit Kubernetes jobs directly from the command line without writing YAML files manually.
 - 📊 **Easy Monitoring** - Track and manage batch jobs with a fast and responsive Terminal User Interface (TUI).
+- 📈 **Resource Management** - View available cluster resources (CPU, memory, GPU) with `kube-state-metrics` integration.
 - 📄 **Work with Templates** - Save custom job templates to standardize and simplify job configurations, making your experiments reproducible.
 - 📓 **Jupyter Integration** - Launch Jupyter notebooks on Kubernetes with automatic port forwarding.
 - 🐛 **Debug Sessions** - Spin up interactive debug pods for quick troubleshooting.
@@ -19,6 +20,7 @@ Skip the YAML. A lightweight command-line Job Execution Toolkit (Jet) for Kubern
 Jet eliminates the complexity of Kubernetes YAML configuration files, providing a streamlined CLI experience for:
 - Defining and submitting batch jobs
 - Monitoring job status and logs with a lightweight and fast Terminal User Interface (TUI) inspired by [`k9s`](https://k9scli.io/).
+- Viewing cluster resource availability (CPU, memory, GPU) with integration to `kube-state-metrics`.
 - Running interactive Jupyter notebook sessions on Kubernetes with automatic port forwarding.
 - Creating interactive shell debug environments for troubleshooting and debugging.
 - Automatic job cleanup for Jupyter and debug sessions.
@@ -34,6 +36,8 @@ Perfect for ML engineers and researchers who want to leverage Kubernetes for ML 
 2. `kubectl` installed and configured on your local machine. Refer to the [official Kubernetes documentation](https://kubernetes.io/docs/tasks/tools/) for installation instructions.
 
 3. A running Kubernetes cluster, with kubeconfig properly set up to access the cluster from your local machine.
+
+4. For the `jet resources` command, `kube-state-metrics` must be installed in your cluster to fetch resource metrics. Currently tested with `kube-state-metrics` versions 7.0.0 and 7.1.0.
  
 ### Install Jet
 Jet can be installed using pip from PyPI:

@@ -13,7 +13,9 @@ import re
 from collections import defaultdict
 import shutil
 import textwrap
-from .defaults import JET_HOME
+import sys
+from tabulate import tabulate
+from .defaults import JET_HOME, KUBE_STATE_METRICS_URL
 from .k8s_events import K8S_EVENTS
 
 
@@ -1357,3 +1359,291 @@ def print_tables_wrapped(data,
                     # column suppressed (same as previous), print blanks of column width
                     out_cells.append(" " * col_widths[i])
             print((" " * padding).join(out_cells))
+
+
+def get_cluster_resources():
+    """Query kube-state-metrics and display cluster resource availability.
+        
+    Returns:
+        0 on success, 1 on error
+    """
+    url = KUBE_STATE_METRICS_URL
+
+    logging.info(f"Connecting to kube-state-metrics at: {url}")
+
+    try:
+        response = httpx.get(url, timeout=10)
+        response.raise_for_status()
+        logging.info(f"Successfully connected")
+        logging.info(f"Response size: {len(response.text)} bytes")
+    except httpx.RequestError as e:
+        logging.error(f"Error connecting: {e}")
+        return 1
+    except httpx.HTTPStatusError as e:
+        logging.error(f"HTTP error: {e}")
+        return 1
+
+    # Parse Prometheus metrics
+    metrics = _parse_prometheus_metrics(response.text)
+
+    nodes = defaultdict(lambda: {
+        'cpu_allocatable': 0,
+        'cpu_requests': 0,
+        'mem_allocatable': 0,
+        'mem_requests': 0,
+        'gpu_allocatable': 0,
+        'gpu_requests': 0,
+        'gpu_product': 'N/A',
+        'gpu_count': '0',
+        'unschedulable': False
+    })
+
+    # Track pod phases (namespace/pod -> phase)
+    pod_phases = {}
+
+    # Track resources by node -> pod -> container
+    container_resources = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
+        'cpu': 0, 'memory': 0, 'gpu': 0
+    })))
+
+    # Parse metrics
+    for metric_name, samples in metrics.items():
+        # Get allocatable resources per node
+        if metric_name == 'kube_node_status_allocatable':
+            for labels, value in samples:
+                node = labels.get('node', '')
+                resource = labels.get('resource', '')
+
+                if not node:
+                    continue
+
+                if resource == 'cpu':
+                    nodes[node]['cpu_allocatable'] = value
+                elif resource == 'memory':
+                    nodes[node]['mem_allocatable'] = value / (1024**3)  # Convert to GB
+                elif resource == 'nvidia_com_gpu':
+                    nodes[node]['gpu_allocatable'] = int(value)
+
+        # Get node schedulable status (cordoned nodes)
+        elif metric_name == 'kube_node_spec_unschedulable':
+            for labels, value in samples:
+                node = labels.get('node', '')
+                if not node: 
+                    continue
+                # Mark as unschedulable
+                if value == 1:
+                    nodes[node]['unschedulable'] = True
+
+        # Get node taints - NoSchedule/NoExecute taints make nodes effectively unschedulable
+        elif metric_name == 'kube_node_spec_taint':
+            for labels, value in samples:
+                node = labels.get('node', '')
+                effect = labels.get('effect', '')
+                if not node:
+                    continue
+                # Mark as unschedulable if node has NoSchedule or NoExecute taints
+                if effect in ['NoSchedule', 'NoExecute'] and value == 1:
+                    nodes[node]['unschedulable'] = True
+
+        # Get pod phases - CRITICAL for filtering
+        elif metric_name == 'kube_pod_status_phase':
+            for labels, value in samples:
+                namespace = labels.get('namespace', '')
+                pod = labels.get('pod', '')
+                phase = labels.get('phase', '')
+
+                if not namespace or not pod:
+                    continue
+
+                pod_id = f"{namespace}/{pod}"
+                # Only record if the phase value is 1 (active)
+                if value == 1:
+                    pod_phases[pod_id] = phase
+
+        # Get resource requests - track by container
+        elif metric_name == 'kube_pod_container_resource_requests':
+            for labels, value in samples:
+                node = labels.get('node', '')
+                pod = labels.get('pod', '')
+                container = labels.get('container', '')
+                namespace = labels.get('namespace', '')
+                resource = labels.get('resource', '')
+
+                if not node or not pod or not container:
+                    continue
+
+                # Create unique identifier
+                pod_id = f"{namespace}/{pod}"
+
+                # Store resources per container
+                if resource == 'cpu':
+                    container_resources[node][pod_id][container]['cpu'] = value
+                elif resource == 'memory':
+                    container_resources[node][pod_id][container]['memory'] = value / (1024**3)
+                elif resource == 'nvidia_com_gpu':
+                    container_resources[node][pod_id][container]['gpu'] = int(value)
+
+        # Get GPU labels (product and count)
+        elif metric_name == 'kube_node_labels':
+            for labels, value in samples:
+                node = labels.get('node', '')
+
+                if not node:
+                    continue
+
+                # Check for GPU product label
+                if 'label_nvidia_com_gpu_product' in labels:
+                    gpu_product = labels['label_nvidia_com_gpu_product']
+                    gpu_product = gpu_product.replace('-', ' ').replace('_', ' ')
+                    nodes[node]['gpu_product'] = gpu_product
+
+                # Check for GPU count label
+                if 'label_nvidia_com_gpu_count' in labels:
+                    nodes[node]['gpu_count'] = labels['label_nvidia_com_gpu_count']
+
+    # Now sum up container resources per node - ONLY for Running/Pending pods
+    for node, pods in container_resources.items():
+        for pod_id, containers in pods.items():
+            # Check pod phase
+            phase = pod_phases.get(pod_id, 'Unknown')
+
+            # ONLY count Running or Pending pods
+            if phase not in ['Running', 'Pending']:
+                continue
+
+            for container_name, resources in containers.items():
+                nodes[node]['cpu_requests'] += resources['cpu']
+                nodes[node]['mem_requests'] += resources['memory']
+                nodes[node]['gpu_requests'] += resources['gpu']
+
+    # Format output table
+    table_data = []
+    for node_name in sorted(nodes.keys()):
+        data = nodes[node_name]
+
+        cpu_free = data['cpu_allocatable'] - data['cpu_requests']
+        mem_free = data['mem_allocatable'] - data['mem_requests']
+        gpu_free = data['gpu_allocatable'] - data['gpu_requests']
+        status = 'No' if data['unschedulable'] else 'Yes'
+
+        table_data.append({
+            'Node': node_name,
+            'CPUs': f"{cpu_free:.1f}/{data['cpu_allocatable']:.1f}",
+            'RAM (GB)': f"{mem_free:.1f}/{data['mem_allocatable']:.1f}",
+            'GPUs': f"{gpu_free}/{data['gpu_allocatable']}" if data['gpu_allocatable'] > 0 else "0/0",
+            'GPU Type': data['gpu_product'] if data['gpu_allocatable'] > 0 else 'N/A',
+            'Sched': status
+        })
+
+    # Sort table by Node name
+    table_data.sort(key=lambda x: [int(part) if part.isdigit() else part for part in re.split(r'(\d+)', x['Node'])])
+
+    if not table_data:
+        print("No nodes found!", file=sys.stderr)
+        return 1
+
+    # Generate table and add title row spanning full width
+    table_str = tabulate(table_data, headers='keys', tablefmt='grid')
+    table_lines = table_str.split('\n')
+    table_width = len(table_lines[0])
+    
+    # Create centered title row
+    title = "Cluster Resource Availability (free/total)"
+    title_row = "|" + title.center(table_width - 2) + "|"
+    
+    # Print table with title
+    top_border = table_lines[0][:1] + table_lines[0][1:-1].replace('+', '-') + table_lines[0][-1:]
+    print(top_border)
+    print(title_row)
+    print('\n'.join(table_lines))
+
+    # Summary
+    print(f"\nTotal nodes: {len(table_data)}")
+    schedulable_count = sum(1 for d in nodes.values() if not d['unschedulable'])
+    print(f"Schedulable nodes: {schedulable_count}/{len(table_data)}")
+    total_gpus = sum(d['gpu_allocatable'] for d in nodes.values())
+    total_gpus_free = sum(d['gpu_allocatable'] - d['gpu_requests'] for d in nodes.values())
+    total_cpu = sum(d['cpu_allocatable'] for d in nodes.values())
+    total_cpu_free = sum(d['cpu_allocatable'] - d['cpu_requests'] for d in nodes.values())
+
+    print(f"Total CPUs: {total_cpu_free:.1f}/{total_cpu:.1f} available")
+    if total_gpus > 0:
+        print(f"Total GPUs: {total_gpus_free}/{int(total_gpus)} available")
+
+    return 0
+
+
+def _parse_prometheus_metrics(text):
+    """Parse Prometheus text format metrics into a dictionary.
+    
+    Returns: dict of metric_name -> list of (labels_dict, value) tuples
+    """
+    metrics = defaultdict(list)
+    
+    for line in text.split('\n'):
+        line = line.strip()
+        
+        # Skip empty lines and comments
+        if not line or line.startswith('#'):
+            continue
+        
+        try:
+            # Parse metric line: metric_name{label1="val1",label2="val2"} value
+            if '{' in line:
+                # Has labels
+                name_part, rest = line.split('{', 1)
+                labels_part, value_part = rest.rsplit('}', 1)
+                
+                # Parse labels
+                labels = {}
+                if labels_part:
+                    # Handle labels with commas inside quoted values
+                    i = 0
+                    while i < len(labels_part):
+                        # Find key
+                        eq_pos = labels_part.find('=', i)
+                        if eq_pos == -1:
+                            break
+                        key = labels_part[i:eq_pos]
+                        
+                        # Find value (quoted)
+                        if labels_part[eq_pos + 1] == '"':
+                            # Find closing quote
+                            end_quote = eq_pos + 2
+                            while end_quote < len(labels_part):
+                                if labels_part[end_quote] == '"' and labels_part[end_quote - 1] != '\\':
+                                    break
+                                end_quote += 1
+                            value = labels_part[eq_pos + 2:end_quote]
+                            i = end_quote + 2  # Skip quote and comma
+                        else:
+                            # Unquoted value (shouldn't happen in standard format)
+                            comma_pos = labels_part.find(',', eq_pos)
+                            if comma_pos == -1:
+                                value = labels_part[eq_pos + 1:]
+                                i = len(labels_part)
+                            else:
+                                value = labels_part[eq_pos + 1:comma_pos]
+                                i = comma_pos + 1
+                        
+                        labels[key] = value
+                
+                # Parse value
+                value_str = value_part.strip()
+                if ' ' in value_str:
+                    value_str = value_str.split()[0]  # Take first part if timestamp present
+                value = float(value_str) if value_str else 0.0
+            else:
+                # No labels
+                parts = line.split()
+                name_part = parts[0]
+                labels = {}
+                value = float(parts[1]) if len(parts) > 1 else 0.0
+            
+            metrics[name_part].append((labels, value))
+            
+        except (ValueError, IndexError):
+            # Skip malformed lines
+            continue
+    
+    return metrics

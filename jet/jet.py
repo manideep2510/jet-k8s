@@ -4,7 +4,7 @@
 import sys
 import argparse
 import subprocess
-from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager, detect_shell, get_kubeconfig, get_current_namespace
+from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager, detect_shell, get_kubeconfig, get_current_namespace, get_cluster_resources
 from .process_args import ProcessArguments
 from .tui.app import run_tui
 import time
@@ -214,6 +214,10 @@ def parse_arguments():
                                           formatter_class=make_kubectl_help_formatter('delete'))
     delete_parser.add_argument('delete_args', nargs=argparse.REMAINDER, metavar='ARG', help='[resource_type] <name> [kubectl_options]. Examples: "my-job", "job my-job", "pod my-pod --force".')
     parser._subparsers_map['delete'] = delete_parser
+
+    # Resources command
+    resources_parser = subparsers.add_parser('resources', aliases=['res', 'r'], help='Show cluster resource availability (CPU, memory, GPU per node)')
+    parser._subparsers_map['resources'] = resources_parser
 
     return parser, parser.parse_args()
 
@@ -618,6 +622,11 @@ class Jet():
         
         delete_resource(name=name, resource_type=resource_type, namespace=self.set_namespace, kubectl_args=kubectl_args)
 
+    def show_resources(self):
+        """Show cluster resource availability from kube-state-metrics."""
+        return get_cluster_resources()
+
+
 def run(args, command, subcommand=None):
     # Jet instance
     jet = Jet(processed_args=args)
@@ -651,6 +660,8 @@ def run(args, command, subcommand=None):
         jet.connect()
     elif command == 'delete':
         jet.delete()
+    elif command in ['resources', 'res', 'r']:
+        jet.show_resources()
 
 def cli():
     try:

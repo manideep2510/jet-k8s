@@ -270,6 +270,35 @@ Force immediate deletion (use with caution):
 jet delete my-job --force --grace-period 0
 ```
 
+## jet resources
+Show available cluster resources (CPU, memory, GPU). This command fetches resource metrics from `kube-state-metrics`, which is necessary to have installed in your cluster for this command to work.
+
+```bash
+jet resources
+
+# Short alias
+jet res
+
+# Even shorter alias
+jet r
+```
+
+Example Output:
+
+```
++--------------------------------------------------------------------------------------+
+|                      Cluster Resource Availability (free/total)                      |
++--------+-------------+---------------+--------+----------------------------+---------+
+| Node   | CPUs        | RAM (GB)      | GPUs   | GPU Type                   | Sched   |
++========+=============+===============+========+============================+=========+
+| node1  | 22.6/32.0   | 122.6/124.8   | 0/0    | N/A                        | No      |
++--------+-------------+---------------+--------+----------------------------+---------+
+| node2  | 15.3/64.0   | 21.4/254.3    | 4/8    | NVIDIA RTX A6000           | Yes     |
++--------+-------------+---------------+--------+----------------------------+---------+
+| node3  | 378.3/384.0 | 2258.0/2266.4 | 8/8    | NVIDIA H100 80GB HBM3      | Yes     |
++--------+-------------+---------------+--------+----------------------------+---------+
+```
+
 ## Also See
 
 - [Monitoring Jobs](https://github.com/manideep2510/jet-k8s/blob/main/docs/monitoring-jobs.md) - TUI and real-time job monitoring

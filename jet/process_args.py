@@ -44,6 +44,8 @@ class ProcessArguments:
             return self._process_connect()
         elif self.args.jet_command == 'delete':
             return self._process_delete()
+        elif self.args.jet_command in ['resources', 'res', 'r']:
+            return self._process_resources()
         
     def _process_launch_job(self):
 
@@ -425,6 +427,10 @@ class ProcessArguments:
             'namespace': namespace,
             'kubectl_args': kubectl_args
         }
+
+    def _process_resources(self):
+        """Process resources command arguments."""
+        return {}
 
     def _add_volume_with_dedupe(self, pod_spec, volume_dict, existing_by_name, existing_by_mount, dedupe_by_name=False):
         """
