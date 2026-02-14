@@ -1568,12 +1568,12 @@ def get_cluster_resources():
 
     # Summary
     print(f"\nTotal nodes: {len(table_data)}")
-    schedulable_count = sum(1 for d in nodes.values() if not d['unschedulable'])
-    print(f"Schedulable nodes: {schedulable_count}/{len(table_data)}")
-    total_gpus = sum(d['gpu_allocatable'] for d in nodes.values())
-    total_gpus_free = sum(d['gpu_allocatable'] - d['gpu_requests'] for d in nodes.values())
-    total_cpu = sum(d['cpu_allocatable'] for d in nodes.values())
-    total_cpu_free = sum(d['cpu_allocatable'] - d['cpu_requests'] for d in nodes.values())
+    schedulable_nodes = [d for d in nodes.values() if not d['unschedulable']]
+    print(f"Schedulable nodes: {len(schedulable_nodes)}/{len(table_data)}")
+    total_gpus = sum(d['gpu_allocatable'] for d in schedulable_nodes)
+    total_gpus_free = sum(d['gpu_allocatable'] - d['gpu_requests'] for d in schedulable_nodes)
+    total_cpu = sum(d['cpu_allocatable'] for d in schedulable_nodes)
+    total_cpu_free = sum(d['cpu_allocatable'] - d['cpu_requests'] for d in schedulable_nodes)
 
     print(f"Total CPUs: {total_cpu_free:.1f}/{total_cpu:.1f} available")
     if total_gpus > 0:
