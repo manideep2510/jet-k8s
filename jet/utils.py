@@ -3,10 +3,7 @@ import subprocess
 import yaml
 import time
 import os
-import kr8s
-from kr8s.objects import Job, Pod
 import json
-import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 import re
@@ -14,7 +11,6 @@ from collections import defaultdict
 import shutil
 import textwrap
 import sys
-from tabulate import tabulate
 from .defaults import JET_HOME, KUBE_STATE_METRICS_URL
 from .k8s_events import K8S_EVENTS
 
@@ -255,6 +251,7 @@ def init_pod_object(resource, namespace=None, **kwargs):
     Returns:
         Pod: kr8s Pod object.
     """
+    from kr8s.objects import Pod
 
     try:
         pod = Pod(resource=resource, namespace=namespace, **kwargs)
@@ -272,6 +269,9 @@ def get_logs(pod_name, namespace=None, follow=True, timeout=None):
         follow (bool): Whether to follow the logs.
         timeout (int): Timeout in seconds for log streaming.
     """
+    import kr8s
+    import httpx
+
     namespace = namespace if namespace else get_current_namespace()
 
     # Initialize pod object using kr8s
@@ -463,6 +463,8 @@ _TRANSITIONAL_STATES = {
 
 def _get_pod_events(pod_name, namespace, filter_warning=True):
     """Get events for a pod."""
+    import kr8s
+
     try:
         events = kr8s.get(
             "events",
@@ -585,6 +587,8 @@ def _get_job_status(job_name, namespace):
         dict with keys: 'active', 'succeeded', 'failed', 'complete', 'failed_permanently'
         Or None if job not found.
     """
+    from kr8s.objects import Job
+
     try:
         job = Job.get(job_name, namespace=namespace)
         status = job.status
@@ -615,6 +619,9 @@ def _get_job_status(job_name, namespace):
 
 def _get_job_events(job_name, namespace, filter_warning=True):
     """Get recent events for a job."""
+    import kr8s
+    from kr8s.objects import Job
+
     try:
         # Get the job's UID
         job = Job.get(job_name, namespace=namespace)
@@ -666,6 +673,10 @@ def wait_for_job_pods_ready(job_name, namespace=None, timeout=300):
     Returns:
         str: Pod name if pod reached running/succeeded, or None if failed/timeout.
     """
+    import kr8s
+    import httpx
+    from kr8s.objects import Job
+
     namespace = namespace if namespace else get_current_namespace()
     start_time = time.time()
     last_reported_reasons = {}
@@ -813,6 +824,8 @@ def wait_for_pod_ready(pod_name, namespace=None, timeout=300):
     Returns:
         str: 'running', 'succeeded', 'failed', or 'timeout'
     """
+    import kr8s
+
     namespace = namespace if namespace else get_current_namespace()
     start_time = time.time()
     last_reported_reasons = {}
@@ -1359,6 +1372,9 @@ def get_cluster_resources():
     Returns:
         0 on success, 1 on error
     """
+    import httpx
+    from tabulate import tabulate
+
     url = KUBE_STATE_METRICS_URL
 
     logging.info(f"Connecting to kube-state-metrics at: {url}")
@@ -1536,6 +1552,7 @@ def get_cluster_resources():
 
     # Generate table and add title row spanning full width
     table_str = tabulate(table_data, headers='keys', tablefmt='grid')
+    
     table_lines = table_str.split('\n')
     table_width = len(table_lines[0])
     
