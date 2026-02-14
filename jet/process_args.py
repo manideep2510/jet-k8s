@@ -6,7 +6,6 @@ import configparser
 from pathlib import Path
 import yaml
 from .utils import TemplateManager
-from .job_config import JobConfig, JobMetadata, JobSpec, PodSpec, ContainerSpec, VolumeSpec, ResourceSpec, ServiceConfig, ServicePortSpec
 from .defaults import *
 
 
@@ -123,6 +122,7 @@ class ProcessArguments:
 
     def _process_launch_service(self):
         """Process service launch arguments and create a simple ClusterIP Service."""
+        from .job_config import ServiceConfig, ServicePortSpec
         
         # Parse selector labels (required)
         selector = {}
@@ -444,6 +444,7 @@ class ProcessArguments:
             dedupe_by_name: If True, also deduplicate by volume name (for auto-generated names).
                            If False, only deduplicate by mount_path (default behavior for CLI volumes).
         """
+        from .job_config import VolumeSpec
         new_vol = VolumeSpec(
             name=volume_dict['name'],
             volume_type=volume_dict['volume_type'],
@@ -490,6 +491,7 @@ class ProcessArguments:
         return new_vol
 
     def _generate_specs(self, job_type, backoff_limit, ttl_seconds_after_finished, additional_volumes=[], additional_envs={}, additional_ports=[], command_override=None, working_dir_override=None, active_deadline_seconds=None):
+        from .job_config import JobConfig, JobMetadata, JobSpec, PodSpec, ContainerSpec, VolumeSpec, ResourceSpec
         
         # 1. Load Base Config
         if self.args.template:
@@ -898,6 +900,7 @@ class ProcessArguments:
         return pyenv_volume_details, pyenv_env_vars
 
     def _load_job_config(self, path):
+        from .job_config import JobConfig
         with open(path, 'r') as f:
             data = yaml.safe_load(f)
         return JobConfig.from_dict(data)

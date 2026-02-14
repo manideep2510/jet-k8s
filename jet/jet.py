@@ -2,12 +2,9 @@
 # and call relevant functions from other modules
 
 import sys
+import time
 import argparse
 import subprocess
-from .utils import print_job_yaml, submit_job, wait_for_job_pods_ready, get_logs, delete_resource, init_pod_object, exec_into_pod, TemplateManager, detect_shell, get_kubeconfig, get_current_namespace, get_cluster_resources
-from .process_args import ProcessArguments
-from .tui.app import run_tui
-import time
 import signal
 from .defaults import JET_HOME, DEFAULT_JOB_POD_WAITING_TIMEOUT
 from . import __version__
@@ -235,6 +232,8 @@ def print_help_and_exit(parser, subparser_key=None):
 
 class Jet():
     def __init__(self, processed_args):
+        from .utils import TemplateManager, get_kubeconfig, get_current_namespace
+
         self.processed_args = processed_args
         self.template_manager = TemplateManager(templates_dir=JET_HOME / "templates")
         
@@ -251,6 +250,8 @@ class Jet():
             self.set_namespace = self.namespace
 
     def launch_job(self):
+        from .utils import submit_job, wait_for_job_pods_ready, get_logs
+
         job_config_obj = self.processed_args
         
         # Set namespace from args or kubectl context
@@ -304,6 +305,8 @@ class Jet():
             )
 
     def launch_jupyter(self):
+        from .utils import submit_job, wait_for_job_pods_ready, get_logs, init_pod_object, delete_resource
+
         job_config_obj = self.processed_args
         
         # Set namespace from args or kubectl context
@@ -417,6 +420,8 @@ class Jet():
                 print(f"Error deleting Jupyter job/pod: {delete_exception}")
 
     def launch_debug(self):
+        from .utils import submit_job, wait_for_job_pods_ready, exec_into_pod, delete_resource
+
         job_config_obj = self.processed_args
 
         # Set namespace from args or kubectl context
@@ -507,6 +512,8 @@ class Jet():
 
     def launch_service(self):
         """Launch a simple ClusterIP Service."""
+        from .utils import submit_job
+
         service_config = self.processed_args
         
         # Set namespace from args or kubectl context
@@ -545,10 +552,12 @@ class Jet():
 
     def list_jobs(self):
         """Launch TUI to list and browse jobs."""
+        from .tui.app import run_tui
         result = run_tui(mode="jobs", namespace=self.set_namespace, mouse=False)
 
     def list_pods(self):
         """Launch TUI to list and browse pods."""
+        from .tui.app import run_tui
         result = run_tui(mode="pods", namespace=self.set_namespace, mouse=False, job_name=None)
 
     def get_logs(self):
@@ -585,6 +594,8 @@ class Jet():
 
     def connect(self):
         """Connect (exec) into a pod."""
+        from .utils import detect_shell, exec_into_pod
+
         resource_type = self.processed_args.get('resource_type')
         name = self.processed_args.get('name')
         shell_type = self.processed_args.get('shell')
@@ -606,6 +617,7 @@ class Jet():
                 else:
                     # Launch TUI to select pod
                     # TODO: Pass user selected shell into TUI
+                    from .tui.app import run_tui
                     result = run_tui(mode="pods", namespace=self.set_namespace, job_name=name)
                     if result and isinstance(result, tuple):
                         action, pod_name, ns = result
@@ -614,10 +626,13 @@ class Jet():
             else:
                 print(f"No pods found for job {name}")
         else:
+            from .tui.app import run_tui
             run_tui(mode="jobs", namespace=self.set_namespace)
 
     def delete(self):
         """Delete a resource."""
+        from .utils import delete_resource
+
         resource_type = self.processed_args.get('resource_type')
         name = self.processed_args.get('name')
         kubectl_args = self.processed_args.get('kubectl_args', [])
@@ -626,6 +641,7 @@ class Jet():
 
     def show_resources(self):
         """Show cluster resource availability from kube-state-metrics."""
+        from .utils import get_cluster_resources
         return get_cluster_resources()
 
 
@@ -721,6 +737,7 @@ def cli():
                 return print_help_and_exit(parser, 'describe')
 
         # Process arguments
+        from .process_args import ProcessArguments
         processor = ProcessArguments(args)
         processed_args = processor.process()
 
