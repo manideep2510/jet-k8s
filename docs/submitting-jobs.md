@@ -138,6 +138,17 @@ jet launch job my-job \
 
 Options: `Never` (default), `OnFailure`, `Always`
 
+### Parallalism and Completions
+Control the number of parallel pods and total completions for the job:
+
+```bash
+jet launch job my-job \
+  --image my-image \
+  --command "uvicorn myapp:app --host 0.0.0.0 --port 8000" \
+  --parallelism 2 \
+  --completions 2
+```
+
 ### Shared Memory Size
 
 Increase shared memory for data loaders:

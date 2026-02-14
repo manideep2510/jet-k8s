@@ -175,14 +175,6 @@ def submit_job(job_config, dry_run=False, verbose=False, resource_type='job'):
         else:
             raise Exception(result.stderr)
         
-        # # Create resource using kr8s
-        # job = Job(resource=job_config, namespace=job_config['metadata'].get('namespace', 'default'))
-        # job.create()
-        
-        # print(
-        #     f"\n{resource_name} \x1b[1;32m{job_config['metadata']['name']}\x1b[0m created in namespace \x1b[38;5;245m{job_config['metadata'].get('namespace', 'default')}\x1b[0m\n"
-        # )
-
     except Exception as e:
         raise Exception(f"Error submitting {resource_type} with subprocess: {e}")
 

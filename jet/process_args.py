@@ -52,7 +52,7 @@ class ProcessArguments:
         return self._generate_specs(
             job_type='job',
             backoff_limit=self.args.backoff_limit if hasattr(self.args, 'backoff_limit') and self.args.backoff_limit is not None else DEFAULT_BACKOFF_LIMIT,
-            ttl_seconds_after_finished=DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED # Argument currently not implemented, defaulted to 15 days   
+            ttl_seconds_after_finished=DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED # Argument currently not implemented, defaulted to 15 days
         )
     
     def _process_launch_jupyter(self):
@@ -534,6 +534,11 @@ class ProcessArguments:
         job_config.metadata.labels['job-type'] = job_type
 
         # Job Spec
+        if hasattr(self.args, 'parallelism') and self.args.parallelism is not None:
+            job_config.spec.parallelism = self.args.parallelism
+        if hasattr(self.args, 'completions') and self.args.completions is not None:
+            job_config.spec.completions = self.args.completions
+
         if backoff_limit is not None:
              job_config.spec.backoff_limit = backoff_limit
         elif job_config.spec.backoff_limit is None:

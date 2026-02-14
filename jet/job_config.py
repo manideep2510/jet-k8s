@@ -87,17 +87,23 @@ class PodSpec:
             container.validate()
 
 
-# TODO: completions, parallelism, completionMode, backoffLimitPerIndex, activeDeadlineSeconds, podFailurePolicy
+# TODO: completionMode, backoffLimitPerIndex, activeDeadlineSeconds, podFailurePolicy
 # TODO: suspend (pause/resume the job), Others: podReplacementPolicy, manualSelector, selector, templateGeneration, revisionHistoryLimit, successPolicy
 @dataclass
 class JobSpec:
+    parallelism: Optional[int] = None
+    completions: Optional[int] = None
     backoff_limit: Optional[int] = None
     ttl_seconds_after_finished: Optional[int] = None
     template_spec: PodSpec = field(default_factory=PodSpec)
 
     def validate(self):
+        if self.parallelism is not None and self.parallelism < 1:
+            raise ValueError("'parallelism' must be an integer >= 1")
+        if self.completions is not None and self.completions < 1:
+            raise ValueError("'completions' must be an integer >= 1")
         if self.backoff_limit is not None and self.backoff_limit < 0:
-            raise ValueError("'backoff_limit' must be >= 0")
+            raise ValueError("'backoff_limit' must be an integer >= 0")
         self.template_spec.validate()
 
 @dataclass
@@ -225,6 +231,8 @@ class JobConfig:
         )
 
         job_spec = JobSpec(
+            parallelism=spec_data.get('parallelism'),
+            completions=spec_data.get('completions'),
             backoff_limit=spec_data.get('backoffLimit'),
             ttl_seconds_after_finished=spec_data.get('ttlSecondsAfterFinished'),
             template_spec=pod_spec
@@ -312,6 +320,10 @@ class JobConfig:
 
         # Job Spec
         job_spec_dict = {}
+        if self.spec.parallelism is not None:
+            job_spec_dict['parallelism'] = self.spec.parallelism
+        if self.spec.completions is not None:
+            job_spec_dict['completions'] = self.spec.completions
         if self.spec.backoff_limit is not None:
             job_spec_dict['backoffLimit'] = self.spec.backoff_limit
         if self.spec.ttl_seconds_after_finished is not None:
