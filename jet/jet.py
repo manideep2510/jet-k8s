@@ -76,6 +76,8 @@ def parse_arguments():
     job_parser.add_argument('--priority', help='Job priority')
     job_parser.add_argument('--restart-policy', choices=['Never', 'OnFailure', 'Always'], help='Pod restart policy')
     job_parser.add_argument('--backoff-limit', type=int, help='Number of retries before marking job as failed')
+    job_parser.add_argument('--parallelism', type=int, help='Number of pods that will run in parallel. Defaults to 1 if not set.')
+    job_parser.add_argument('--completions', type=int, help='Number of successful pod completions needed to mark the job as complete. Defaults to 1 if not set.')
     job_parser.add_argument('--volume', '-v', action='append', nargs='+', help='Volumes to mount. Format: [<volume_name>:]<host_path>[:<mount_path>][:Type]')
     job_parser.add_argument('--working-dir', help='Working directory inside the container')
     job_parser.add_argument('--shm-size', help='Size of /dev/shm shared memory')
